@@ -38,6 +38,7 @@ flowchart LR
         LA["MSE reconstruction"]
         LQ["VQ codebook + commitment"]
         LC["Optional train-only<br/>activity contrastive loss"]
+        LF["Optional transform decoder losses<br/>STFT + Haar wavelet + reed transitions"]
         LT["total_loss = sum modality losses"]
     end
 
@@ -57,6 +58,7 @@ flowchart LR
     LA --> LT
     LQ --> LT
     LC --> LT
+    LF --> LT
 ```
 
 ## What The Current Model Does
@@ -77,6 +79,11 @@ flowchart LR
 - Optional label-aware training uses a training-only CLIP-style loss between
   pooled sensor latents and activity label embeddings. Labels do not enter the
   encoder, quantizer, decoder, or reconstruction path.
+- Optional transform decoder heads predict transform-domain features directly
+  from the quantized latent. Their predictions are compared against transforms
+  computed from the target raw signal: STFT magnitude for frequency content,
+  Haar wavelet coefficients for multiscale shape, and first differences for
+  sparse reed/contact transitions.
 
 ## Suggested Changes
 

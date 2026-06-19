@@ -93,6 +93,23 @@ class Decoder1D(nn.Module):
         return x
 
 
+class TransformFeatureDecoder(nn.Module):
+    """Auxiliary decoder head that predicts transform-domain features from quantized latents."""
+    def __init__(self, latent_dim: int, hidden: int, output_dim: int):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Conv1d(latent_dim, hidden, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.AdaptiveAvgPool1d(1),
+            nn.Flatten(),
+            nn.Linear(hidden, output_dim),
+        )
+
+    def forward(self, z: torch.Tensor) -> torch.Tensor:
+        # z: (B, T', D)
+        return self.net(z.permute(0, 2, 1))
+
+
 class ResidualBlock1D(nn.Module):
     """Small residual block for 1D temporal features."""
     def __init__(self, channels: int):
@@ -123,6 +140,73 @@ class LabelConditioner(nn.Module):
         logits = sensor_vec @ label_vec.t()
         targets = torch.arange(labels.size(0), device=labels.device)
         return 0.5 * (F.cross_entropy(logits, targets) + F.cross_entropy(logits.t(), targets))
+
+
+def stft_feature_dim(channels: int, seq_len: int, n_fft: int = 16) -> int:
+    n_fft = min(int(n_fft), int(seq_len))
+    hop_length = max(1, n_fft // 4)
+    frames = 1 + max(0, (int(seq_len) - n_fft) // hop_length)
+    freqs = n_fft // 2 + 1
+    return int(channels) * freqs * frames
+
+
+def wavelet_feature_dim(channels: int, seq_len: int, levels: int = 2) -> int:
+    length = int(seq_len)
+    total = 0
+    for _ in range(int(levels)):
+        if length < 2:
+            break
+        even_len = length - (length % 2)
+        coeff_len = even_len // 2
+        total += 2 * coeff_len * int(channels)
+        length = coeff_len
+    return total
+
+
+def transition_feature_dim(channels: int, seq_len: int) -> int:
+    return max(0, int(seq_len) - 1) * int(channels)
+
+
+def stft_magnitude_features(x: torch.Tensor, n_fft: int = 16) -> torch.Tensor:
+    # STFT magnitudes computed from raw target signal.
+    B, T, C = x.shape
+    if T < 4:
+        return x.new_zeros((B, 0))
+    n_fft = min(int(n_fft), T)
+    hop_length = max(1, n_fft // 4)
+    window = torch.hann_window(n_fft, device=x.device, dtype=torch.float32)
+    flat = x.float().permute(0, 2, 1).reshape(B * C, T)
+    spec = torch.stft(flat, n_fft=n_fft, hop_length=hop_length, window=window, center=False, return_complex=True)
+    mag = torch.abs(spec).reshape(B, C, -1)
+    return mag.reshape(B, -1)
+
+
+def haar_wavelet_features(x: torch.Tensor, levels: int = 2) -> torch.Tensor:
+    # Simple Haar approximation/detail coefficients across temporal scales.
+    coeff = x.float()
+    features = []
+    scale = math.sqrt(2.0)
+    for _ in range(int(levels)):
+        length = coeff.size(1)
+        if length < 2:
+            break
+        even_len = length - (length % 2)
+        y = coeff[:, :even_len, :]
+        y_even, y_odd = y[:, 0::2, :], y[:, 1::2, :]
+        approx, detail = (y_even + y_odd) / scale, (y_even - y_odd) / scale
+        features.extend([approx.reshape(x.size(0), -1), detail.reshape(x.size(0), -1)])
+        coeff = approx
+    if not features:
+        return x.new_zeros((x.size(0), 0))
+    return torch.cat(features, dim=1)
+
+
+def transition_features(x: torch.Tensor) -> torch.Tensor:
+    # Useful for sparse reed/contact streams: target changes.
+    if x.size(1) < 2:
+        return x.new_zeros((x.size(0), 0))
+    delta = x[:, 1:, :] - x[:, :-1, :]
+    return delta.reshape(x.size(0), -1)
 
 
 class VectorQuantizer(nn.Module):
@@ -467,13 +551,18 @@ class MultiModalSharedVQVAE(nn.Module):
                  quantizer_type: str = 'standard', activity_contrastive_loss: bool = False,
                  label_vocab_size: int = 512, label_embedding_dim: int = None,
                  label_contrastive_weight: float = 0.0,
-                 encoder_res_blocks: int = 0, decoder_res_blocks: int = 1):
+                 encoder_res_blocks: int = 0, decoder_res_blocks: int = 1,
+                 stft_loss_weight: float = 0.0, wavelet_loss_weight: float = 0.0,
+                 reed_transition_loss_weight: float = 0.0):
         super().__init__()
         self.input_len = input_len
         self.use_temporal_interpolator = bool(use_temporal_interpolator)
         self.quantizer_type = quantizer_type
         self.activity_contrastive_loss = bool(activity_contrastive_loss)
         self.label_contrastive_weight = float(label_contrastive_weight)
+        self.stft_loss_weight = float(stft_loss_weight)
+        self.wavelet_loss_weight = float(wavelet_loss_weight)
+        self.reed_transition_loss_weight = float(reed_transition_loss_weight)
         # encoders and decoders
         self.temporal_interpolators = nn.ModuleDict()
         if self.use_temporal_interpolator:
@@ -491,6 +580,22 @@ class MultiModalSharedVQVAE(nn.Module):
             name: Decoder1D(out_ch, hidden=hidden, latent_dim=latent_dim, res_blocks=decoder_res_blocks)
             for name, out_ch in modality_dims.items()
         })
+        self.stft_decoders = nn.ModuleDict()
+        self.wavelet_decoders = nn.ModuleDict()
+        self.reed_transition_decoders = nn.ModuleDict()
+        if input_len is not None:
+            for name, channels in modality_dims.items():
+                if name.startswith('REED_'):
+                    if self.reed_transition_loss_weight > 0:
+                        out_dim = transition_feature_dim(channels, input_len)
+                        self.reed_transition_decoders[name] = TransformFeatureDecoder(latent_dim, hidden, out_dim)
+                else:
+                    if self.stft_loss_weight > 0:
+                        out_dim = stft_feature_dim(channels, input_len)
+                        self.stft_decoders[name] = TransformFeatureDecoder(latent_dim, hidden, out_dim)
+                    if self.wavelet_loss_weight > 0:
+                        out_dim = wavelet_feature_dim(channels, input_len)
+                        self.wavelet_decoders[name] = TransformFeatureDecoder(latent_dim, hidden, out_dim)
         self.label_conditioner = None
         if self.activity_contrastive_loss:
             self.label_conditioner = LabelConditioner(
@@ -525,6 +630,26 @@ class MultiModalSharedVQVAE(nn.Module):
             recon = self.decoders[name](z_q, target_len=target.size(1))
             recon_loss = F.mse_loss(recon, target)
             loss = recon_loss + qloss
+            stft_loss = None
+            wavelet_loss = None
+            reed_transition = None
+            if name.startswith('REED_'):
+                if self.reed_transition_loss_weight > 0 and name in self.reed_transition_decoders:
+                    pred_transition = self.reed_transition_decoders[name](z_q)
+                    target_transition = transition_features(target).detach()
+                    reed_transition = F.smooth_l1_loss(pred_transition, target_transition)
+                    loss = loss + self.reed_transition_loss_weight * reed_transition
+            else:
+                if self.stft_loss_weight > 0 and name in self.stft_decoders:
+                    pred_stft = self.stft_decoders[name](z_q)
+                    target_stft = stft_magnitude_features(target).detach()
+                    stft_loss = F.l1_loss(pred_stft, target_stft)
+                    loss = loss + self.stft_loss_weight * stft_loss
+                if self.wavelet_loss_weight > 0 and name in self.wavelet_decoders:
+                    pred_wavelet = self.wavelet_decoders[name](z_q)
+                    target_wavelet = haar_wavelet_features(target).detach()
+                    wavelet_loss = F.l1_loss(pred_wavelet, target_wavelet)
+                    loss = loss + self.wavelet_loss_weight * wavelet_loss
             if label_contrastive_loss is not None:
                 loss = loss + self.label_contrastive_weight * label_contrastive_loss
             total_loss = total_loss + loss
@@ -536,6 +661,9 @@ class MultiModalSharedVQVAE(nn.Module):
                 'codebook_loss': stats.get('codebook_loss') if isinstance(stats, dict) else None,
                 'commitment_loss': stats.get('commitment_loss') if isinstance(stats, dict) else None,
                 'label_contrastive_loss': label_contrastive_loss,
+                'stft_loss': stft_loss,
+                'wavelet_loss': wavelet_loss,
+                'reed_transition_loss': reed_transition,
                 'indices': idx,
                 'perplexity': stats.get('perplexity') if isinstance(stats, dict) else None,
                 'counts': stats.get('counts') if isinstance(stats, dict) else None,

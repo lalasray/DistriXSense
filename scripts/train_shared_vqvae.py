@@ -174,6 +174,9 @@ def main():
     p.add_argument('--label_contrastive_weight', type=float, default=0.0)
     p.add_argument('--encoder_res_blocks', type=int, default=0)
     p.add_argument('--decoder_res_blocks', type=int, default=1)
+    p.add_argument('--stft_loss_weight', type=float, default=0.0)
+    p.add_argument('--wavelet_loss_weight', type=float, default=0.0)
+    p.add_argument('--reed_transition_loss_weight', type=float, default=0.0)
     args = p.parse_args()
     use_activity_contrastive_loss = bool(args.activity_contrastive_loss)
 
@@ -263,6 +266,9 @@ def main():
         label_contrastive_weight=args.label_contrastive_weight,
         encoder_res_blocks=args.encoder_res_blocks,
         decoder_res_blocks=args.decoder_res_blocks,
+        stft_loss_weight=args.stft_loss_weight,
+        wavelet_loss_weight=args.wavelet_loss_weight,
+        reed_transition_loss_weight=args.reed_transition_loss_weight,
     ).to(device)
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)
     scaler = torch.amp.GradScaler('cuda', enabled=amp_enabled)
@@ -319,6 +325,9 @@ def main():
             codebook_loss = mean_metric(out, modalities, 'codebook_loss')
             commitment_loss = mean_metric(out, modalities, 'commitment_loss')
             label_contrastive_loss = mean_metric(out, modalities, 'label_contrastive_loss')
+            stft_loss = mean_metric(out, modalities, 'stft_loss')
+            wavelet_loss = mean_metric(out, modalities, 'wavelet_loss')
+            reed_transition_loss = mean_metric(out, modalities, 'reed_transition_loss')
             perplexity = mean_metric(out, modalities, 'perplexity')
             postfix = {'loss': f'{float(total_loss.detach()):.4f}', 'step': step}
             if recon_loss is not None:
@@ -329,6 +338,12 @@ def main():
                 postfix['commit'] = f'{commitment_loss:.4f}'
             if label_contrastive_loss is not None:
                 postfix['label'] = f'{label_contrastive_loss:.4f}'
+            if stft_loss is not None:
+                postfix['stft'] = f'{stft_loss:.4f}'
+            if wavelet_loss is not None:
+                postfix['wavelet'] = f'{wavelet_loss:.4f}'
+            if reed_transition_loss is not None:
+                postfix['reed_d'] = f'{reed_transition_loss:.4f}'
             if perplexity is not None:
                 postfix['ppl'] = f'{perplexity:.2f}'
             progress.set_postfix(postfix)

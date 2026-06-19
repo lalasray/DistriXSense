@@ -78,6 +78,12 @@ powershell -ExecutionPolicy Bypass -File scripts\run_vqvae_cuda_10pct_imu_ema.ps
 powershell -ExecutionPolicy Bypass -File scripts\run_vqvae_cuda_10pct_imu_label.ps1 -Epochs 10 -Batch 32
 ```
 
+10% mixed run with STFT, wavelet, and reed transition losses:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\run_vqvae_cuda_10pct_transform.ps1 -Epochs 10 -Batch 32
+```
+
 Add `-Amp` to either command to use CUDA mixed precision.
 
 Checkpoints are written under `checkpoints\`.
