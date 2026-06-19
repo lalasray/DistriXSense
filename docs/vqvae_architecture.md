@@ -290,15 +290,17 @@ Important defaults in `scripts/train_shared_vqvae.py`:
 seq_len = 32
 latent_dim = 32
 hidden = 64
-encoder_res_blocks = 0
+encoder_res_blocks = 1
 decoder_res_blocks = 1
 normalize_batch = false
 dataset normalization = enabled
 quantizer = standard
-stft_loss_weight = 0
-wavelet_loss_weight = 0
-reed_transition_loss_weight = 0
-activity_contrastive_loss = false
+stft_loss_weight = 0.03
+wavelet_loss_weight = 0.05
+reed_transition_loss_weight = 0.20
+activity_contrastive_loss = true
+label_contrastive_weight = 0.02
+learnable_loss_weights = true
 ```
 
 Dataset normalization:
@@ -308,6 +310,127 @@ checkpoint_dir/norm_stats.json
 ```
 
 is computed once over the selected training windows and reused.
+
+Training metrics:
+
+```text
+checkpoint_dir/metrics.csv
+```
+
+is appended once per epoch with averaged loss components and perplexity.
+
+Disable defaults for ablations:
+
+```powershell
+--encoder_res_blocks 0
+--decoder_res_blocks 0
+--stft_loss_weight 0
+--wavelet_loss_weight 0
+--reed_transition_loss_weight 0
+--no-activity_contrastive_loss
+--no-learnable_loss_weights
+```
+
+## Reading Losses And Tuning Knobs
+
+Do not judge training from `total_loss` alone. The model can have reconstruction,
+VQ, activity, STFT, wavelet, and reed-transition losses active at the same time.
+
+Use `metrics.csv` and the tqdm postfix:
+
+```text
+recon      raw reconstruction MSE
+codebook   standard quantizer codebook loss; hidden for EMA
+commit     commitment loss
+label      optional activity contrastive loss
+stft       optional STFT decoder-head loss
+wavelet    optional Haar decoder-head loss
+reed_d     optional reed transition decoder-head loss
+ppl        codebook perplexity
+```
+
+Common patterns:
+
+```text
+recon flat or rising:
+  lower lr
+  reduce auxiliary loss weights
+  try decoder_res_blocks 1 or 2
+  verify norm_stats.json matches the run
+
+ppl near 1.0:
+  codebook collapse
+  use --quantizer ema
+  lower beta
+  reduce auxiliary weights
+  try IMU-only baseline
+  consider k-means codebook initialization
+
+commit very high:
+  encoder outputs are far from codes
+  lower beta if it dominates training
+  lower lr if unstable
+
+stft/wavelet high but recon okay:
+  increase stft/wavelet weights gradually
+  do not jump too high, or reconstruction may worsen
+
+label high but recon worsens:
+  lower LabelContrastiveWeight
+  start around 0.01-0.05
+
+reed_d always zero:
+  selected windows may contain no reed transitions
+  use a more active reed stream or larger data fraction
+```
+
+Useful first tuning order:
+
+```text
+1. Make recon go down on IMU-only EMA.
+2. Check ppl stays above 1.
+3. Add transform heads with small weights.
+4. Add activity auxiliary loss with small weight.
+5. Add sparse reed/contact streams.
+6. Scale to full sensor families.
+```
+
+## Learnable Loss Weights
+
+You can enable uncertainty-style learnable loss weighting:
+
+```powershell
+--learnable_loss_weights
+```
+
+This adds one learned scalar per loss family:
+
+```text
+w_recon
+w_vq
+w_label
+w_stft
+w_wavelet
+w_reed_transition
+```
+
+Internally each enabled component is weighted like:
+
+```text
+exp(-log_var) * loss + log_var
+```
+
+Interpretation:
+
+```text
+larger w_*  -> model is emphasizing that loss more
+smaller w_* -> model is down-weighting that loss
+```
+
+This helps when reconstruction, VQ, STFT, wavelet, reed transition, and activity
+losses live on different numeric scales. It does not remove the need to inspect
+the individual raw losses: a learnable weight can hide a bad objective by
+down-weighting it.
 
 ## Common Runners
 
@@ -364,10 +487,8 @@ excluded:
 - `REED_DISHWASHER_S3` is slightly more active, but reed/contact streams are
   still sparse.
 - If codebook collapse returns, first compare against the IMU-only EMA runner.
-- Encoder residual blocks are off by default to keep sensor-to-code inference
-  fast.
-- Decoder residual blocks are on by default because they help reconstruction and
-  are irrelevant if inference only consumes discrete codes.
+- Encoder and decoder residual blocks are on by default now. Use
+  `--encoder_res_blocks 0` when sensor-to-code inference speed matters most.
 - The full-scale runner is heavier than the debug runners. Start with
   `-Batch 16` and `-DataFraction 0.10`, then scale up after checking memory and
   perplexity.

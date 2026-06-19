@@ -91,7 +91,12 @@ and quaternion groups:
 powershell -ExecutionPolicy Bypass -File scripts\run_vqvae_cuda_full_scale.ps1 -Epochs 10 -Batch 16
 ```
 
-Add `-Amp` to either command to use CUDA mixed precision.
+The trainer defaults to residual blocks, transform auxiliary heads, activity
+auxiliary loss, and learnable loss weights. Disable pieces with flags such as
+`--no-activity_contrastive_loss`, `--no-learnable_loss_weights`, or by setting
+individual weights like `--stft_loss_weight 0`.
+
+Add `-Amp` to CUDA runners that expose it to use mixed precision.
 
 Checkpoints are written under `checkpoints\`.
 Each training run also saves dataset normalization stats as `norm_stats.json`

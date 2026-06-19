@@ -1,5 +1,6 @@
 """Train MultiModalSharedVQVAE on Opportunity streams with checkpointing and basic logging."""
 import argparse
+import csv
 import json
 import os
 from pathlib import Path
@@ -167,16 +168,17 @@ def main():
     p.add_argument('--use_temporal_interpolator', action='store_true')
     p.add_argument('--frame_drop_prob', type=float, default=0.0)
     p.add_argument('--min_keep_frames', type=int, default=8)
-    p.add_argument('--activity_contrastive_loss', action='store_true', help='Use labels only as a training-time auxiliary contrastive loss.')
+    p.add_argument('--activity_contrastive_loss', action=argparse.BooleanOptionalAction, default=True, help='Use labels only as a training-time auxiliary contrastive loss.')
     p.add_argument('--label_stream', default='label_HL_Activity')
     p.add_argument('--label_vocab_size', type=int, default=4096)
     p.add_argument('--label_embedding_dim', type=int, default=32)
-    p.add_argument('--label_contrastive_weight', type=float, default=0.0)
-    p.add_argument('--encoder_res_blocks', type=int, default=0)
+    p.add_argument('--label_contrastive_weight', type=float, default=0.02)
+    p.add_argument('--encoder_res_blocks', type=int, default=1)
     p.add_argument('--decoder_res_blocks', type=int, default=1)
-    p.add_argument('--stft_loss_weight', type=float, default=0.0)
-    p.add_argument('--wavelet_loss_weight', type=float, default=0.0)
-    p.add_argument('--reed_transition_loss_weight', type=float, default=0.0)
+    p.add_argument('--stft_loss_weight', type=float, default=0.03)
+    p.add_argument('--wavelet_loss_weight', type=float, default=0.05)
+    p.add_argument('--reed_transition_loss_weight', type=float, default=0.20)
+    p.add_argument('--learnable_loss_weights', action=argparse.BooleanOptionalAction, default=True)
     args = p.parse_args()
     use_activity_contrastive_loss = bool(args.activity_contrastive_loss)
 
@@ -269,16 +271,52 @@ def main():
         stft_loss_weight=args.stft_loss_weight,
         wavelet_loss_weight=args.wavelet_loss_weight,
         reed_transition_loss_weight=args.reed_transition_loss_weight,
+        learnable_loss_weights=args.learnable_loss_weights,
     ).to(device)
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)
     scaler = torch.amp.GradScaler('cuda', enabled=amp_enabled)
 
     os.makedirs(args.checkpoint_dir, exist_ok=True)
+    metrics_path = Path(args.checkpoint_dir) / 'metrics.csv'
+    metric_fields = [
+        'epoch',
+        'avg_total_loss',
+        'avg_recon_loss',
+        'avg_codebook_loss',
+        'avg_commitment_loss',
+        'avg_label_contrastive_loss',
+        'avg_stft_loss',
+        'avg_wavelet_loss',
+        'avg_reed_transition_loss',
+        'avg_perplexity',
+        'lr',
+        'beta',
+        'quantizer',
+        'w_recon',
+        'w_vq',
+        'w_label',
+        'w_stft',
+        'w_wavelet',
+        'w_reed_transition',
+    ]
+    if not metrics_path.exists():
+        with open(metrics_path, 'w', newline='', encoding='utf-8') as fh:
+            csv.DictWriter(fh, fieldnames=metric_fields).writeheader()
     step = 0
     for epoch in range(1, args.epochs + 1):
         model.train()
         t0 = time.time()
         epoch_loss = 0.0
+        epoch_metrics = {
+            'recon_loss': [],
+            'codebook_loss': [],
+            'commitment_loss': [],
+            'label_contrastive_loss': [],
+            'stft_loss': [],
+            'wavelet_loss': [],
+            'reed_transition_loss': [],
+            'perplexity': [],
+        }
         progress = tqdm(dl, desc=f'Epoch {epoch}/{args.epochs}', unit='batch')
         for i, batch in enumerate(progress):
             streams = batch['streams']
@@ -332,7 +370,9 @@ def main():
             postfix = {'loss': f'{float(total_loss.detach()):.4f}', 'step': step}
             if recon_loss is not None:
                 postfix['recon'] = f'{recon_loss:.4f}'
-            if codebook_loss is not None:
+            if args.quantizer == 'ema':
+                postfix['ema'] = 'on'
+            elif codebook_loss is not None:
                 postfix['codebook'] = f'{codebook_loss:.4f}'
             if commitment_loss is not None:
                 postfix['commit'] = f'{commitment_loss:.4f}'
@@ -346,7 +386,23 @@ def main():
                 postfix['reed_d'] = f'{reed_transition_loss:.4f}'
             if perplexity is not None:
                 postfix['ppl'] = f'{perplexity:.2f}'
+            loss_weights = out.get('loss_weights')
+            if loss_weights:
+                postfix['w_recon'] = f"{loss_weights.get('recon', 0):.2f}"
+                postfix['w_vq'] = f"{loss_weights.get('vq', 0):.2f}"
             progress.set_postfix(postfix)
+            for key, value in [
+                ('recon_loss', recon_loss),
+                ('codebook_loss', codebook_loss),
+                ('commitment_loss', commitment_loss),
+                ('label_contrastive_loss', label_contrastive_loss),
+                ('stft_loss', stft_loss),
+                ('wavelet_loss', wavelet_loss),
+                ('reed_transition_loss', reed_transition_loss),
+                ('perplexity', perplexity),
+            ]:
+                if value is not None:
+                    epoch_metrics[key].append(float(value))
             # periodic codebook usage
             if step % 100 == 0:
                 for m in modalities:
@@ -354,9 +410,44 @@ def main():
                         perc = out[m].get('perplexity')
                         print(f'  usage {m} perplexity={perc}')
         t1 = time.time()
-        print(f'Epoch {epoch} finished, avg loss {epoch_loss / max(1, i+1):.4f}, time {t1-t0:.1f}s')
+        avg_total = epoch_loss / max(1, i+1)
+        avg_metrics = {
+            key: (sum(values) / len(values) if values else None)
+            for key, values in epoch_metrics.items()
+        }
+        print(
+            f"Epoch {epoch} finished, avg loss {avg_total:.4f}, "
+            f"recon {avg_metrics['recon_loss'] or 0:.4f}, "
+            f"commit {avg_metrics['commitment_loss'] or 0:.4f}, "
+            f"ppl {avg_metrics['perplexity'] or 0:.2f}, "
+            f"time {t1-t0:.1f}s"
+        )
+        with open(metrics_path, 'a', newline='', encoding='utf-8') as fh:
+            writer = csv.DictWriter(fh, fieldnames=metric_fields)
+            writer.writerow({
+                'epoch': epoch,
+                'avg_total_loss': avg_total,
+                'avg_recon_loss': avg_metrics['recon_loss'],
+                'avg_codebook_loss': avg_metrics['codebook_loss'] if args.quantizer != 'ema' else None,
+                'avg_commitment_loss': avg_metrics['commitment_loss'],
+                'avg_label_contrastive_loss': avg_metrics['label_contrastive_loss'],
+                'avg_stft_loss': avg_metrics['stft_loss'],
+                'avg_wavelet_loss': avg_metrics['wavelet_loss'],
+                'avg_reed_transition_loss': avg_metrics['reed_transition_loss'],
+                'avg_perplexity': avg_metrics['perplexity'],
+                'lr': args.lr,
+                'beta': args.beta,
+                'quantizer': args.quantizer,
+                'w_recon': (model.loss_weighter.current_weights().get('recon') if args.learnable_loss_weights else None),
+                'w_vq': (model.loss_weighter.current_weights().get('vq') if args.learnable_loss_weights else None),
+                'w_label': (model.loss_weighter.current_weights().get('label') if args.learnable_loss_weights else None),
+                'w_stft': (model.loss_weighter.current_weights().get('stft') if args.learnable_loss_weights else None),
+                'w_wavelet': (model.loss_weighter.current_weights().get('wavelet') if args.learnable_loss_weights else None),
+                'w_reed_transition': (model.loss_weighter.current_weights().get('reed_transition') if args.learnable_loss_weights else None),
+            })
         torch.save({'model_state': model.state_dict(), 'opt_state': opt.state_dict()}, os.path.join(args.checkpoint_dir, f'model_epoch{epoch}.pt'))
         print('Saved checkpoint', os.path.join(args.checkpoint_dir, f'model_epoch{epoch}.pt'))
+        print('Saved metrics', metrics_path)
 
 
 if __name__ == '__main__':

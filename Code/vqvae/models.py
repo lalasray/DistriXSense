@@ -142,6 +142,26 @@ class LabelConditioner(nn.Module):
         return 0.5 * (F.cross_entropy(logits, targets) + F.cross_entropy(logits.t(), targets))
 
 
+class LearnableLossWeights(nn.Module):
+    """Uncertainty-style learnable loss weighting."""
+    def __init__(self, names):
+        super().__init__()
+        self.log_vars = nn.ParameterDict({
+            name: nn.Parameter(torch.zeros(()))
+            for name in names
+        })
+
+    def weighted(self, name: str, loss: torch.Tensor) -> torch.Tensor:
+        log_var = self.log_vars[name]
+        return torch.exp(-log_var) * loss + log_var
+
+    def current_weights(self):
+        return {
+            name: float(torch.exp(-param.detach()).cpu())
+            for name, param in self.log_vars.items()
+        }
+
+
 def stft_feature_dim(channels: int, seq_len: int, n_fft: int = 16) -> int:
     n_fft = min(int(n_fft), int(seq_len))
     hop_length = max(1, n_fft // 4)
@@ -553,7 +573,8 @@ class MultiModalSharedVQVAE(nn.Module):
                  label_contrastive_weight: float = 0.0,
                  encoder_res_blocks: int = 0, decoder_res_blocks: int = 1,
                  stft_loss_weight: float = 0.0, wavelet_loss_weight: float = 0.0,
-                 reed_transition_loss_weight: float = 0.0):
+                 reed_transition_loss_weight: float = 0.0,
+                 learnable_loss_weights: bool = False):
         super().__init__()
         self.input_len = input_len
         self.use_temporal_interpolator = bool(use_temporal_interpolator)
@@ -563,6 +584,17 @@ class MultiModalSharedVQVAE(nn.Module):
         self.stft_loss_weight = float(stft_loss_weight)
         self.wavelet_loss_weight = float(wavelet_loss_weight)
         self.reed_transition_loss_weight = float(reed_transition_loss_weight)
+        self.learnable_loss_weights_enabled = bool(learnable_loss_weights)
+        self.loss_weighter = None
+        if self.learnable_loss_weights_enabled:
+            self.loss_weighter = LearnableLossWeights([
+                'recon',
+                'vq',
+                'label',
+                'stft',
+                'wavelet',
+                'reed_transition',
+            ])
         # encoders and decoders
         self.temporal_interpolators = nn.ModuleDict()
         if self.use_temporal_interpolator:
@@ -629,7 +661,10 @@ class MultiModalSharedVQVAE(nn.Module):
             z_q, qloss, idx, stats = self.quantizer.quantize(z_e, modality=name)
             recon = self.decoders[name](z_q, target_len=target.size(1))
             recon_loss = F.mse_loss(recon, target)
-            loss = recon_loss + qloss
+            if self.learnable_loss_weights_enabled:
+                loss = self.loss_weighter.weighted('recon', recon_loss) + self.loss_weighter.weighted('vq', qloss)
+            else:
+                loss = recon_loss + qloss
             stft_loss = None
             wavelet_loss = None
             reed_transition = None
@@ -638,20 +673,32 @@ class MultiModalSharedVQVAE(nn.Module):
                     pred_transition = self.reed_transition_decoders[name](z_q)
                     target_transition = transition_features(target).detach()
                     reed_transition = F.smooth_l1_loss(pred_transition, target_transition)
-                    loss = loss + self.reed_transition_loss_weight * reed_transition
+                    if self.learnable_loss_weights_enabled:
+                        loss = loss + self.reed_transition_loss_weight * self.loss_weighter.weighted('reed_transition', reed_transition)
+                    else:
+                        loss = loss + self.reed_transition_loss_weight * reed_transition
             else:
                 if self.stft_loss_weight > 0 and name in self.stft_decoders:
                     pred_stft = self.stft_decoders[name](z_q)
                     target_stft = stft_magnitude_features(target).detach()
                     stft_loss = F.l1_loss(pred_stft, target_stft)
-                    loss = loss + self.stft_loss_weight * stft_loss
+                    if self.learnable_loss_weights_enabled:
+                        loss = loss + self.stft_loss_weight * self.loss_weighter.weighted('stft', stft_loss)
+                    else:
+                        loss = loss + self.stft_loss_weight * stft_loss
                 if self.wavelet_loss_weight > 0 and name in self.wavelet_decoders:
                     pred_wavelet = self.wavelet_decoders[name](z_q)
                     target_wavelet = haar_wavelet_features(target).detach()
                     wavelet_loss = F.l1_loss(pred_wavelet, target_wavelet)
-                    loss = loss + self.wavelet_loss_weight * wavelet_loss
+                    if self.learnable_loss_weights_enabled:
+                        loss = loss + self.wavelet_loss_weight * self.loss_weighter.weighted('wavelet', wavelet_loss)
+                    else:
+                        loss = loss + self.wavelet_loss_weight * wavelet_loss
             if label_contrastive_loss is not None:
-                loss = loss + self.label_contrastive_weight * label_contrastive_loss
+                if self.learnable_loss_weights_enabled:
+                    loss = loss + self.label_contrastive_weight * self.loss_weighter.weighted('label', label_contrastive_loss)
+                else:
+                    loss = loss + self.label_contrastive_weight * label_contrastive_loss
             total_loss = total_loss + loss
             out[name] = {
                 'recon': recon,
@@ -669,4 +716,6 @@ class MultiModalSharedVQVAE(nn.Module):
                 'counts': stats.get('counts') if isinstance(stats, dict) else None,
             }
         out['total_loss'] = total_loss
+        if self.learnable_loss_weights_enabled:
+            out['loss_weights'] = self.loss_weighter.current_weights()
         return out

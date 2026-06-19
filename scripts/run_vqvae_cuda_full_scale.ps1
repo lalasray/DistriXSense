@@ -2,7 +2,7 @@ param(
     [int]$Epochs = 10,
     [int]$Batch = 16,
     [double]$DataFraction = 0.10,
-    [switch]$ActivityAux
+    [switch]$NoActivityAux
 )
 
 $ErrorActionPreference = "Stop"
@@ -26,8 +26,8 @@ $argsList = @(
     "--reed_transition_loss_weight", "0.20"
 )
 
-if ($ActivityAux) {
-    $argsList += "--activity_contrastive_loss"
+if ($NoActivityAux) {
+    $argsList += "--no-activity_contrastive_loss"
 }
 
 & $python @argsList

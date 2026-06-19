@@ -49,7 +49,7 @@ def parse_args():
     p.add_argument('--stft_loss_weight', type=float, default=0.03)
     p.add_argument('--wavelet_loss_weight', type=float, default=0.05)
     p.add_argument('--reed_transition_loss_weight', type=float, default=0.20)
-    p.add_argument('--activity_contrastive_loss', action='store_true')
+    p.add_argument('--activity_contrastive_loss', action=argparse.BooleanOptionalAction, default=True)
     p.add_argument('--label_contrastive_weight', type=float, default=0.02)
     p.add_argument('--dry_run', action='store_true')
     return p.parse_args()
@@ -89,6 +89,8 @@ def main():
         '--stft_loss_weight', str(args.stft_loss_weight),
         '--wavelet_loss_weight', str(args.wavelet_loss_weight),
         '--reed_transition_loss_weight', str(args.reed_transition_loss_weight),
+        '--encoder_res_blocks', '1',
+        '--decoder_res_blocks', '1',
         '--checkpoint_dir', args.checkpoint_dir,
     ]
     if args.activity_contrastive_loss:
@@ -97,6 +99,8 @@ def main():
             '--label_stream', 'label_HL_Activity',
             '--label_contrastive_weight', str(args.label_contrastive_weight),
         ])
+    else:
+        cmd.append('--no-activity_contrastive_loss')
 
     if args.dry_run:
         print(' '.join(cmd))

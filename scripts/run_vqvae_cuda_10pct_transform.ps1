@@ -21,8 +21,5 @@ if (-not (Test-Path $python)) {
     --num_workers 4 `
     --data_fraction 0.10 `
     --grad_clip 1.0 `
-    --stft_loss_weight 0.05 `
-    --wavelet_loss_weight 0.10 `
-    --reed_transition_loss_weight 0.25 `
     --checkpoint_dir checkpoints\vqvae_10pct_transform `
     $(if ($Amp) { "--amp" })
