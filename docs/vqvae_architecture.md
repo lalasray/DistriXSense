@@ -23,7 +23,6 @@ flowchart LR
     end
 
     subgraph Quantizer["Shared partitioned codebook"]
-        L["Optional label conditioner<br/>sensor embedding always<br/>activity labels train-only"]
         CA["acc slice<br/>128 codes"]
         CQ["quat slice<br/>128 codes"]
         CR["reed slice<br/>64 codes"]
@@ -38,6 +37,7 @@ flowchart LR
     subgraph Loss["Loss"]
         LA["MSE reconstruction"]
         LQ["VQ codebook + commitment"]
+        LC["Optional train-only<br/>activity contrastive loss"]
         LT["total_loss = sum modality losses"]
     end
 
@@ -45,14 +45,18 @@ flowchart LR
     Q --> N
     R --> N
     N --> D --> I
-    I --> EA --> L --> CA --> DA --> LA
-    I --> EQ --> L --> CQ --> DQ --> LA
-    I --> ER --> L --> CR --> DR --> LA
+    I --> EA --> CA --> DA --> LA
+    I --> EQ --> CQ --> DQ --> LA
+    I --> ER --> CR --> DR --> LA
+    EA --> LC
+    EQ --> LC
+    ER --> LC
     CA --> LQ
     CQ --> LQ
     CR --> LQ
     LA --> LT
     LQ --> LT
+    LC --> LT
 ```
 
 ## What The Current Model Does
@@ -67,9 +71,9 @@ flowchart LR
 - Optional temporal augmentation can randomly drop frames. A learnable temporal
   interpolator first linearly resamples the remaining frames to the configured
   input length, then applies a small learnable convolutional refinement.
-- Optional label-aware training uses a sensor embedding during quantization and
-  a training-only CLIP-style loss between pooled sensor latents and activity
-  label embeddings. Inference does not require activity labels.
+- Optional label-aware training uses a training-only CLIP-style loss between
+  pooled sensor latents and activity label embeddings. Labels do not enter the
+  encoder, quantizer, decoder, or reconstruction path.
 
 ## Suggested Changes
 

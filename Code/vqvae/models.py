@@ -90,29 +90,12 @@ class Decoder1D(nn.Module):
 
 
 class LabelConditioner(nn.Module):
-    """Small label/sensor context module used to condition quantization."""
+    """Small training-only alignment head for sensor latents and activity labels."""
     def __init__(self, modality_names, label_vocab_size: int, latent_dim: int, label_embedding_dim: int = None):
         super().__init__()
         label_embedding_dim = int(label_embedding_dim or latent_dim)
-        self.modality_to_idx = {name: i for i, name in enumerate(modality_names)}
         self.label_embedding = nn.Embedding(label_vocab_size, label_embedding_dim)
-        self.sensor_embedding = nn.Embedding(len(self.modality_to_idx), label_embedding_dim)
-        self.to_latent = nn.Sequential(
-            nn.Linear(label_embedding_dim, latent_dim),
-            nn.GELU(),
-            nn.Linear(latent_dim, latent_dim),
-        )
         self.latent_projection = nn.Linear(latent_dim, label_embedding_dim)
-
-    def sensor_context(self, modality: str, batch_size: int, device) -> torch.Tensor:
-        modality_idx = torch.full(
-            (batch_size,),
-            self.modality_to_idx[modality],
-            dtype=torch.long,
-            device=device,
-        )
-        context = self.sensor_embedding(modality_idx)
-        return self.to_latent(context)
 
     def contrastive_loss(self, pooled_latent: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
         labels = labels.to(dtype=torch.long).clamp(min=0, max=self.label_embedding.num_embeddings - 1)
@@ -515,14 +498,10 @@ class MultiModalSharedVQVAE(nn.Module):
                 x = self.temporal_interpolators[name](x, lengths=lengths)
             target = targets.get(name, x) if targets else x
             z_e = self.encoders[name](x)  # (B, T', D)
-            z_for_quant = z_e
             label_contrastive_loss = None
-            if self.label_conditioning:
-                context = self.label_conditioner.sensor_context(name, z_e.size(0), z_e.device).unsqueeze(1)
-                z_for_quant = z_e + context
-                if labels is not None and self.label_contrastive_weight > 0:
-                    label_contrastive_loss = self.label_conditioner.contrastive_loss(z_e.mean(dim=1), labels)
-            z_q, qloss, idx, stats = self.quantizer.quantize(z_for_quant, modality=name)
+            if self.label_conditioning and labels is not None and self.label_contrastive_weight > 0:
+                label_contrastive_loss = self.label_conditioner.contrastive_loss(z_e.mean(dim=1), labels)
+            z_q, qloss, idx, stats = self.quantizer.quantize(z_e, modality=name)
             recon = self.decoders[name](z_q, target_len=target.size(1))
             recon_loss = F.mse_loss(recon, target)
             loss = recon_loss + qloss

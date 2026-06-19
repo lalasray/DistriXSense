@@ -24,7 +24,7 @@ if (-not (Test-Path $python)) {
     --num_workers 4 `
     --data_fraction 0.10 `
     --grad_clip 1.0 `
-    --label_conditioning `
+    --activity_contrastive_loss `
     --label_stream label_HL_Activity `
     --label_vocab_size 4096 `
     --label_embedding_dim 32 `

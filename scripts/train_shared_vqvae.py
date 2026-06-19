@@ -167,12 +167,14 @@ def main():
     p.add_argument('--use_temporal_interpolator', action='store_true')
     p.add_argument('--frame_drop_prob', type=float, default=0.0)
     p.add_argument('--min_keep_frames', type=int, default=8)
-    p.add_argument('--label_conditioning', action='store_true', help='Use inference-safe sensor context plus optional training-only label alignment.')
+    p.add_argument('--activity_contrastive_loss', action='store_true', help='Use labels only as a training-time auxiliary contrastive loss.')
+    p.add_argument('--label_conditioning', action='store_true', help='Deprecated alias for --activity_contrastive_loss.')
     p.add_argument('--label_stream', default='label_HL_Activity')
     p.add_argument('--label_vocab_size', type=int, default=4096)
     p.add_argument('--label_embedding_dim', type=int, default=32)
     p.add_argument('--label_contrastive_weight', type=float, default=0.0)
     args = p.parse_args()
+    use_activity_contrastive_loss = bool(args.activity_contrastive_loss or args.label_conditioning)
 
     modalities = parse_modality_str(args.modalities)
     codebook = parse_modality_str(args.codebook)
@@ -207,7 +209,7 @@ def main():
             f'Requested modalities are missing from the dataset/group map: {missing_modalities}. '
             f'Available examples: {preview}'
         )
-    if args.label_conditioning and args.label_stream not in available_modalities:
+    if use_activity_contrastive_loss and args.label_stream not in available_modalities:
         raise ValueError(f'Label stream {args.label_stream!r} is missing from the dataset/group map.')
 
     ds = full_ds
@@ -254,7 +256,7 @@ def main():
         input_len=args.seq_len,
         use_temporal_interpolator=args.use_temporal_interpolator,
         quantizer_type=args.quantizer,
-        label_conditioning=args.label_conditioning,
+        label_conditioning=use_activity_contrastive_loss,
         label_vocab_size=args.label_vocab_size,
         label_embedding_dim=args.label_embedding_dim,
         label_contrastive_weight=args.label_contrastive_weight,
@@ -275,7 +277,7 @@ def main():
             input_lengths = {}
             targets = {}
             condition_labels = None
-            if args.label_conditioning:
+            if use_activity_contrastive_loss:
                 condition_labels = majority_labels(streams[args.label_stream]).to(device, non_blocking=(device.type == 'cuda'))
             for m in modalities:
                 if m not in streams:
