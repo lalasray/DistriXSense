@@ -168,13 +168,12 @@ def main():
     p.add_argument('--frame_drop_prob', type=float, default=0.0)
     p.add_argument('--min_keep_frames', type=int, default=8)
     p.add_argument('--activity_contrastive_loss', action='store_true', help='Use labels only as a training-time auxiliary contrastive loss.')
-    p.add_argument('--label_conditioning', action='store_true', help='Deprecated alias for --activity_contrastive_loss.')
     p.add_argument('--label_stream', default='label_HL_Activity')
     p.add_argument('--label_vocab_size', type=int, default=4096)
     p.add_argument('--label_embedding_dim', type=int, default=32)
     p.add_argument('--label_contrastive_weight', type=float, default=0.0)
     args = p.parse_args()
-    use_activity_contrastive_loss = bool(args.activity_contrastive_loss or args.label_conditioning)
+    use_activity_contrastive_loss = bool(args.activity_contrastive_loss)
 
     modalities = parse_modality_str(args.modalities)
     codebook = parse_modality_str(args.codebook)
@@ -256,7 +255,7 @@ def main():
         input_len=args.seq_len,
         use_temporal_interpolator=args.use_temporal_interpolator,
         quantizer_type=args.quantizer,
-        label_conditioning=use_activity_contrastive_loss,
+        activity_contrastive_loss=use_activity_contrastive_loss,
         label_vocab_size=args.label_vocab_size,
         label_embedding_dim=args.label_embedding_dim,
         label_contrastive_weight=args.label_contrastive_weight,

@@ -445,14 +445,14 @@ class MultiModalSharedVQVAE(nn.Module):
     def __init__(self, modality_dims: Dict[str, int], modality_codebook_sizes: Dict[str, int],
                  hidden: int = 64, latent_dim: int = 32, beta: float = 0.25,
                  input_len: int = None, use_temporal_interpolator: bool = False,
-                 quantizer_type: str = 'standard', label_conditioning: bool = False,
+                 quantizer_type: str = 'standard', activity_contrastive_loss: bool = False,
                  label_vocab_size: int = 512, label_embedding_dim: int = None,
                  label_contrastive_weight: float = 0.0):
         super().__init__()
         self.input_len = input_len
         self.use_temporal_interpolator = bool(use_temporal_interpolator)
         self.quantizer_type = quantizer_type
-        self.label_conditioning = bool(label_conditioning)
+        self.activity_contrastive_loss = bool(activity_contrastive_loss)
         self.label_contrastive_weight = float(label_contrastive_weight)
         # encoders and decoders
         self.temporal_interpolators = nn.ModuleDict()
@@ -472,7 +472,7 @@ class MultiModalSharedVQVAE(nn.Module):
             for name, out_ch in modality_dims.items()
         })
         self.label_conditioner = None
-        if self.label_conditioning:
+        if self.activity_contrastive_loss:
             self.label_conditioner = LabelConditioner(
                 modality_names=list(modality_dims.keys()),
                 label_vocab_size=label_vocab_size,
@@ -499,7 +499,7 @@ class MultiModalSharedVQVAE(nn.Module):
             target = targets.get(name, x) if targets else x
             z_e = self.encoders[name](x)  # (B, T', D)
             label_contrastive_loss = None
-            if self.label_conditioning and labels is not None and self.label_contrastive_weight > 0:
+            if self.activity_contrastive_loss and labels is not None and self.label_contrastive_weight > 0:
                 label_contrastive_loss = self.label_conditioner.contrastive_loss(z_e.mean(dim=1), labels)
             z_q, qloss, idx, stats = self.quantizer.quantize(z_e, modality=name)
             recon = self.decoders[name](z_q, target_len=target.size(1))
