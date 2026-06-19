@@ -5,6 +5,7 @@ from pathlib import Path
 import time
 import torch
 from torch.utils.data import DataLoader
+from tqdm.auto import tqdm
 
 import sys
 from pathlib import Path
@@ -78,7 +79,8 @@ def main():
         model.train()
         t0 = time.time()
         epoch_loss = 0.0
-        for i, batch in enumerate(dl):
+        progress = tqdm(dl, desc=f'Epoch {epoch}/{args.epochs}', unit='batch')
+        for i, batch in enumerate(progress):
             streams = batch['streams']
             inputs = {}
             for m in modalities:
@@ -97,8 +99,7 @@ def main():
             scaler.update()
             epoch_loss += float(total_loss.detach())
             step += 1
-            if step % 10 == 0:
-                print(f'Epoch {epoch} step {step} batch {i} loss {float(total_loss):.4f}')
+            progress.set_postfix(loss=f'{float(total_loss.detach()):.4f}', step=step)
             # periodic codebook usage
             if step % 100 == 0:
                 for m in modalities:
