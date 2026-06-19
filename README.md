@@ -84,6 +84,13 @@ powershell -ExecutionPolicy Bypass -File scripts\run_vqvae_cuda_10pct_imu_label.
 powershell -ExecutionPolicy Bypass -File scripts\run_vqvae_cuda_10pct_transform.ps1 -Epochs 10 -Batch 32
 ```
 
+Full-scale run over acceleration, gyro/angular, reed/contact, mag/compass, shoe,
+and quaternion groups:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\run_vqvae_cuda_full_scale.ps1 -Epochs 10 -Batch 16
+```
+
 Add `-Amp` to either command to use CUDA mixed precision.
 
 Checkpoints are written under `checkpoints\`.

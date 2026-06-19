@@ -7,6 +7,7 @@ Current implementation:
 - Main mixed runner: `scripts/run_vqvae_cuda_10pct.ps1`
 - Transform-head runner: `scripts/run_vqvae_cuda_10pct_transform.ps1`
 - Activity auxiliary-loss runner: `scripts/run_vqvae_cuda_10pct_imu_label.ps1`
+- Full-scale runner: `scripts/run_vqvae_cuda_full_scale.ps1`
 
 ## Big Picture
 
@@ -323,6 +324,29 @@ Transform decoder-head run:
 powershell -ExecutionPolicy Bypass -File scripts\run_vqvae_cuda_10pct_transform.ps1 -Epochs 10 -Batch 32
 ```
 
+Full-scale run over the requested sensor families:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\run_vqvae_cuda_full_scale.ps1 -Epochs 10 -Batch 16
+```
+
+The full-scale launcher selects 89 groups from `group_map_official.json`:
+
+```text
+included:
+  acceleration
+  gyro / angular velocity
+  reed / contact
+  mag / compass
+  shoe sensors
+  quaternion
+
+excluded:
+  label_*
+  MILLISEC
+  LOCATION_TAG*
+```
+
 ## Current Practical Notes
 
 - `REED_DISHWASHER_S1` was effectively inactive in sampled windows.
@@ -333,6 +357,9 @@ powershell -ExecutionPolicy Bypass -File scripts\run_vqvae_cuda_10pct_transform.
   fast.
 - Decoder residual blocks are on by default because they help reconstruction and
   are irrelevant if inference only consumes discrete codes.
+- The full-scale runner is heavier than the debug runners. Start with
+  `-Batch 16` and `-DataFraction 0.10`, then scale up after checking memory and
+  perplexity.
 
 ## Change Status
 
