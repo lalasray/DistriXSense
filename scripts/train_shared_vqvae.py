@@ -172,6 +172,8 @@ def main():
     p.add_argument('--label_vocab_size', type=int, default=4096)
     p.add_argument('--label_embedding_dim', type=int, default=32)
     p.add_argument('--label_contrastive_weight', type=float, default=0.0)
+    p.add_argument('--encoder_res_blocks', type=int, default=0)
+    p.add_argument('--decoder_res_blocks', type=int, default=1)
     args = p.parse_args()
     use_activity_contrastive_loss = bool(args.activity_contrastive_loss)
 
@@ -259,6 +261,8 @@ def main():
         label_vocab_size=args.label_vocab_size,
         label_embedding_dim=args.label_embedding_dim,
         label_contrastive_weight=args.label_contrastive_weight,
+        encoder_res_blocks=args.encoder_res_blocks,
+        decoder_res_blocks=args.decoder_res_blocks,
     ).to(device)
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)
     scaler = torch.amp.GradScaler('cuda', enabled=amp_enabled)

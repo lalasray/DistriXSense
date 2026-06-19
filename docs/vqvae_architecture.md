@@ -17,9 +17,9 @@ flowchart LR
     end
 
     subgraph Encoders["Separate 1D encoders"]
-        EA["Conv1d -> ReLU -> stride-2 Conv1d -> 1x1 Conv"]
-        EQ["Conv1d -> ReLU -> stride-2 Conv1d -> 1x1 Conv"]
-        ER["Conv1d -> ReLU -> stride-2 Conv1d -> 1x1 Conv"]
+        EA["Conv1d -> ReLU -> stride-2 Conv1d -> optional residuals -> 1x1 Conv"]
+        EQ["Conv1d -> ReLU -> stride-2 Conv1d -> optional residuals -> 1x1 Conv"]
+        ER["Conv1d -> ReLU -> stride-2 Conv1d -> optional residuals -> 1x1 Conv"]
     end
 
     subgraph Quantizer["Shared partitioned codebook"]
@@ -29,9 +29,9 @@ flowchart LR
     end
 
     subgraph Decoders["Separate 1D decoders"]
-        DA["1x1 Conv -> ConvTranspose1d -> Conv1d"]
-        DQ["1x1 Conv -> ConvTranspose1d -> Conv1d"]
-        DR["1x1 Conv -> ConvTranspose1d -> Conv1d"]
+        DA["1x1 Conv -> residual block -> ConvTranspose1d -> Conv1d"]
+        DQ["1x1 Conv -> residual block -> ConvTranspose1d -> Conv1d"]
+        DR["1x1 Conv -> residual block -> ConvTranspose1d -> Conv1d"]
     end
 
     subgraph Loss["Loss"]
@@ -65,6 +65,9 @@ flowchart LR
 - The quantizer is shared as one tensor, but each modality only uses its own fixed slice.
 - The encoder downsamples time by 2 using a strided convolution.
 - The decoder upsamples time using `ConvTranspose1d`.
+- Decoder residual blocks are enabled by default (`--decoder_res_blocks 1`).
+- Encoder residual blocks are off by default (`--encoder_res_blocks 0`) to keep
+  sensor-to-code inference fast. Enable them only if quality needs it.
 - Training computes mean/std once over the selected training windows, saves them
   as `norm_stats.json` in the checkpoint directory, and reuses them for later
   training/evaluation/inference runs.

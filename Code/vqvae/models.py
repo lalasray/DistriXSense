@@ -50,10 +50,11 @@ class LearnableTemporalInterpolator(nn.Module):
 
 class Encoder1D(nn.Module):
     """Very simple 1D encoder: Conv1d -> ReLU -> Conv1d -> projection to latent_dim."""
-    def __init__(self, in_channels: int, hidden: int = 64, latent_dim: int = 32):
+    def __init__(self, in_channels: int, hidden: int = 64, latent_dim: int = 32, res_blocks: int = 0):
         super().__init__()
         self.conv1 = nn.Conv1d(in_channels, hidden, kernel_size=3, padding=1)
         self.conv2 = nn.Conv1d(hidden, hidden, kernel_size=3, padding=1, stride=2)
+        self.res_blocks = nn.Sequential(*[ResidualBlock1D(hidden) for _ in range(int(res_blocks))])
         self.conv3 = nn.Conv1d(hidden, latent_dim, kernel_size=1)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -61,6 +62,7 @@ class Encoder1D(nn.Module):
         x = x.permute(0, 2, 1)
         x = F.relu(self.conv1(x))
         x = F.relu(self.conv2(x))
+        x = self.res_blocks(x)
         z = self.conv3(x)
         # output (B, latent_dim, T') -> (B, T', D)
         z = z.permute(0, 2, 1)
@@ -69,9 +71,10 @@ class Encoder1D(nn.Module):
 
 class Decoder1D(nn.Module):
     """Very simple decoder: maps latent (B, T', D) -> (B, T, C)"""
-    def __init__(self, out_channels: int, hidden: int = 64, latent_dim: int = 32):
+    def __init__(self, out_channels: int, hidden: int = 64, latent_dim: int = 32, res_blocks: int = 1):
         super().__init__()
         self.conv1 = nn.Conv1d(latent_dim, hidden, kernel_size=1)
+        self.res_blocks = nn.Sequential(*[ResidualBlock1D(hidden) for _ in range(int(res_blocks))])
         self.deconv = nn.ConvTranspose1d(hidden, hidden, kernel_size=4, stride=2, padding=1)
         self.conv_out = nn.Conv1d(hidden, out_channels, kernel_size=3, padding=1)
 
@@ -79,6 +82,7 @@ class Decoder1D(nn.Module):
         # z: (B, T', D) -> (B, D, T')
         x = z.permute(0, 2, 1)
         x = F.relu(self.conv1(x))
+        x = self.res_blocks(x)
         x = F.relu(self.deconv(x))
         x = self.conv_out(x)
         # x: (B, C, T) -> (B, T, C)
@@ -87,6 +91,21 @@ class Decoder1D(nn.Module):
             # simple interpolation in time
             x = F.interpolate(x.permute(0,2,1), size=target_len, mode='linear', align_corners=False).permute(0,2,1)
         return x
+
+
+class ResidualBlock1D(nn.Module):
+    """Small residual block for 1D temporal features."""
+    def __init__(self, channels: int):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.ReLU(),
+            nn.Conv1d(channels, channels, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv1d(channels, channels, kernel_size=1),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x + self.net(x)
 
 
 class LabelConditioner(nn.Module):
@@ -447,7 +466,8 @@ class MultiModalSharedVQVAE(nn.Module):
                  input_len: int = None, use_temporal_interpolator: bool = False,
                  quantizer_type: str = 'standard', activity_contrastive_loss: bool = False,
                  label_vocab_size: int = 512, label_embedding_dim: int = None,
-                 label_contrastive_weight: float = 0.0):
+                 label_contrastive_weight: float = 0.0,
+                 encoder_res_blocks: int = 0, decoder_res_blocks: int = 1):
         super().__init__()
         self.input_len = input_len
         self.use_temporal_interpolator = bool(use_temporal_interpolator)
@@ -464,11 +484,11 @@ class MultiModalSharedVQVAE(nn.Module):
                 for name, in_ch in modality_dims.items()
             })
         self.encoders = nn.ModuleDict({
-            name: Encoder1D(in_ch, hidden=hidden, latent_dim=latent_dim)
+            name: Encoder1D(in_ch, hidden=hidden, latent_dim=latent_dim, res_blocks=encoder_res_blocks)
             for name, in_ch in modality_dims.items()
         })
         self.decoders = nn.ModuleDict({
-            name: Decoder1D(out_ch, hidden=hidden, latent_dim=latent_dim)
+            name: Decoder1D(out_ch, hidden=hidden, latent_dim=latent_dim, res_blocks=decoder_res_blocks)
             for name, out_ch in modality_dims.items()
         })
         self.label_conditioner = None
