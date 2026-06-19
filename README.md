@@ -63,3 +63,13 @@ Example usage after activating the venv:
 python -c "from dataloaders.casas_pytorch_dataset import CASASSequenceDataset; ds=CASASSequenceDataset('dataset/CASAS', seq_len=128); print(len(ds))"
 ```
 
+Run DataLoader example
+----------------------
+
+After the venv is activated, run the example script to fetch one batch (uses GPU if available):
+
+```
+python scripts/run_dataloader_example.py --root dataset/CASAS/data/data --seq_len 128 --batch_size 8
+```
+
+
