@@ -3,3 +3,4 @@
 /dataset/CASAS/data
 /dataset/CASAS/floorplans
 /dataset/CASAS/labeled_data
+/dataloaders/__pycache__
