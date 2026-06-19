@@ -294,7 +294,7 @@ encoder_res_blocks = 1
 decoder_res_blocks = 1
 normalize_batch = false
 dataset normalization = enabled
-quantizer = standard
+quantizer = ema
 stft_loss_weight = 0.03
 wavelet_loss_weight = 0.05
 reed_transition_loss_weight = 0.20
@@ -329,6 +329,7 @@ Disable defaults for ablations:
 --reed_transition_loss_weight 0
 --no-activity_contrastive_loss
 --no-learnable_loss_weights
+--no-ema
 ```
 
 ## Reading Losses And Tuning Knobs
@@ -479,6 +480,20 @@ excluded:
   label_*
   MILLISEC
   LOCATION_TAG*
+```
+
+The full-scale launcher also assigns codebook size per stream from data
+complexity. It scans raw `.dat` rows, estimates per-stream variance and temporal
+change rate, then applies family-specific floors/caps. The allocation is saved:
+
+```text
+checkpoints/vqvae_full_scale/codebook_allocation.json
+```
+
+Disable adaptive allocation with:
+
+```powershell
+--no-adaptive_codebook
 ```
 
 ## Current Practical Notes

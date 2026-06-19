@@ -92,9 +92,10 @@ powershell -ExecutionPolicy Bypass -File scripts\run_vqvae_cuda_full_scale.ps1 -
 ```
 
 The trainer defaults to residual blocks, transform auxiliary heads, activity
-auxiliary loss, and learnable loss weights. Disable pieces with flags such as
+auxiliary loss, EMA quantization, and learnable loss weights. Disable pieces with flags such as
 `--no-activity_contrastive_loss`, `--no-learnable_loss_weights`, or by setting
-individual weights like `--stft_loss_weight 0`.
+individual weights like `--stft_loss_weight 0`. Use `--no-ema` to switch back
+to the standard gradient-updated quantizer.
 
 Add `-Amp` to CUDA runners that expose it to use mixed precision.
 

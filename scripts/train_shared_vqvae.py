@@ -156,7 +156,8 @@ def main():
     p.add_argument('--beta', type=float, default=0.25)
     p.add_argument('--checkpoint_dir', default='checkpoints')
     p.add_argument('--group_map', default='dataset/Opportunity/group_map_official.json')
-    p.add_argument('--quantizer', choices=('standard', 'ema'), default='standard')
+    p.add_argument('--quantizer', choices=('standard', 'ema'), default='ema')
+    p.add_argument('--no-ema', action='store_true', help='Use the standard gradient-updated quantizer instead of EMA.')
     p.add_argument('--device', choices=('auto', 'cuda', 'cpu'), default='auto')
     p.add_argument('--amp', action='store_true', help='Use CUDA automatic mixed precision.')
     p.add_argument('--num_workers', type=int, default=0)
@@ -181,6 +182,8 @@ def main():
     p.add_argument('--learnable_loss_weights', action=argparse.BooleanOptionalAction, default=True)
     args = p.parse_args()
     use_activity_contrastive_loss = bool(args.activity_contrastive_loss)
+    if args.no_ema:
+        args.quantizer = 'standard'
 
     modalities = parse_modality_str(args.modalities)
     codebook = parse_modality_str(args.codebook)
