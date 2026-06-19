@@ -22,7 +22,6 @@ if (-not (Test-Path $python)) {
     --lr 1e-4 `
     --num_workers 4 `
     --data_fraction 0.10 `
-    --normalize_batch `
     --grad_clip 1.0 `
     --use_temporal_interpolator `
     --frame_drop_prob $FrameDropProb `

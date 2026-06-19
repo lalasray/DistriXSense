@@ -80,6 +80,68 @@ def majority_labels(label_stream: torch.Tensor) -> torch.Tensor:
     return torch.stack(out)
 
 
+def compute_or_load_norm_stats(ds, modalities, collate_fn, stats_path: Path, batch_size: int, num_workers: int):
+    if stats_path.exists():
+        with open(stats_path, 'r', encoding='utf-8') as fh:
+            raw = json.load(fh)
+        return {
+            m: {
+                'mean': torch.tensor(raw['modalities'][m]['mean'], dtype=torch.float32),
+                'std': torch.tensor(raw['modalities'][m]['std'], dtype=torch.float32).clamp_min(1e-6),
+            }
+            for m in modalities
+        }
+
+    stats_path.parent.mkdir(parents=True, exist_ok=True)
+    sums = {m: None for m in modalities}
+    sq_sums = {m: None for m in modalities}
+    counts = {m: 0 for m in modalities}
+    stats_dl = DataLoader(
+        ds,
+        batch_size=batch_size,
+        shuffle=False,
+        collate_fn=collate_fn,
+        num_workers=num_workers,
+        persistent_workers=(num_workers > 0),
+    )
+
+    for batch in tqdm(stats_dl, desc='Computing normalization stats', unit='batch'):
+        streams = batch['streams']
+        for m in modalities:
+            x = torch.nan_to_num(streams[m].float(), nan=0.0, posinf=0.0, neginf=0.0)
+            flat = x.reshape(-1, x.size(-1)).double()
+            if sums[m] is None:
+                sums[m] = flat.sum(dim=0)
+                sq_sums[m] = (flat * flat).sum(dim=0)
+            else:
+                sums[m] += flat.sum(dim=0)
+                sq_sums[m] += (flat * flat).sum(dim=0)
+            counts[m] += flat.size(0)
+
+    stats = {}
+    serializable = {'modalities': {}, 'num_windows': len(ds)}
+    for m in modalities:
+        mean = sums[m] / max(1, counts[m])
+        var = (sq_sums[m] / max(1, counts[m])) - (mean * mean)
+        std = torch.sqrt(var.clamp_min(1e-12))
+        stats[m] = {'mean': mean.float(), 'std': std.float().clamp_min(1e-6)}
+        serializable['modalities'][m] = {
+            'mean': stats[m]['mean'].tolist(),
+            'std': stats[m]['std'].tolist(),
+            'count': counts[m],
+        }
+
+    with open(stats_path, 'w', encoding='utf-8') as fh:
+        json.dump(serializable, fh, indent=2)
+    return stats
+
+
+def normalize_with_stats(x: torch.Tensor, stats: dict, modality: str) -> torch.Tensor:
+    mean = stats[modality]['mean'].view(1, 1, -1)
+    std = stats[modality]['std'].view(1, 1, -1).clamp_min(1e-6)
+    return (x - mean) / std
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('--root', default='dataset/Opportunity/extracted/OpportunityUCIDataset/dataset')
@@ -98,7 +160,9 @@ def main():
     p.add_argument('--amp', action='store_true', help='Use CUDA automatic mixed precision.')
     p.add_argument('--num_workers', type=int, default=0)
     p.add_argument('--data_fraction', type=float, default=1.0, help='Fraction of dataset windows to train on, in (0, 1].')
-    p.add_argument('--normalize_batch', action=argparse.BooleanOptionalAction, default=True)
+    p.add_argument('--normalize_batch', action=argparse.BooleanOptionalAction, default=False)
+    p.add_argument('--norm_stats', default=None, help='Path to dataset normalization stats JSON. Computed if missing.')
+    p.add_argument('--no_dataset_norm', action='store_true')
     p.add_argument('--grad_clip', type=float, default=1.0)
     p.add_argument('--use_temporal_interpolator', action='store_true')
     p.add_argument('--frame_drop_prob', type=float, default=0.0)
@@ -168,6 +232,19 @@ def main():
         print(f'AMP: {amp_enabled}')
     print(f'Dataset windows: {len(ds)} / {len(full_ds)} ({args.data_fraction:.1%})')
 
+    norm_stats = None
+    if not args.no_dataset_norm and not args.normalize_batch:
+        stats_path = Path(args.norm_stats) if args.norm_stats else Path(args.checkpoint_dir) / 'norm_stats.json'
+        norm_stats = compute_or_load_norm_stats(
+            ds=ds,
+            modalities=modalities,
+            collate_fn=opportunity_collate,
+            stats_path=stats_path,
+            batch_size=args.batch,
+            num_workers=args.num_workers,
+        )
+        print(f'Normalization stats: {stats_path}')
+
     model = MultiModalSharedVQVAE(
         modality_dims=modalities,
         modality_codebook_sizes=codebook,
@@ -209,6 +286,8 @@ def main():
                     mean = x.mean(dim=(0, 1), keepdim=True)
                     std = x.std(dim=(0, 1), keepdim=True).clamp_min(1e-6)
                     x = (x - mean) / std
+                elif norm_stats is not None:
+                    x = normalize_with_stats(x, norm_stats, m)
                 target = x.to(device, non_blocking=(device.type == 'cuda'))
                 x_input, lengths = drop_random_frames(x, args.frame_drop_prob, args.min_keep_frames)
                 x_input = x_input.to(device, non_blocking=(device.type == 'cuda'))

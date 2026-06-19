@@ -81,3 +81,5 @@ powershell -ExecutionPolicy Bypass -File scripts\run_vqvae_cuda_10pct_imu_label.
 Add `-Amp` to either command to use CUDA mixed precision.
 
 Checkpoints are written under `checkpoints\`.
+Each training run also saves dataset normalization stats as `norm_stats.json`
+inside its checkpoint directory and reuses them on later runs.

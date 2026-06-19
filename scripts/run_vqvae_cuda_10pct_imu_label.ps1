@@ -23,7 +23,6 @@ if (-not (Test-Path $python)) {
     --quantizer ema `
     --num_workers 4 `
     --data_fraction 0.10 `
-    --normalize_batch `
     --grad_clip 1.0 `
     --label_conditioning `
     --label_stream label_HL_Activity `
