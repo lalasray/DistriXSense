@@ -15,6 +15,11 @@ The core model is a multimodal VQ-VAE. Each sensor stream has its own encoder an
 raw decoder, but all streams share one codebook tensor split into modality-specific
 slices.
 
+Small debug runners use a few streams such as `BACK_IMU_acc`,
+`BACK_IMU_quat`, and `REED_DISHWASHER_S3`. The full-scale runner is different:
+it selects 89 streams across acceleration, gyro/angular velocity, reed/contact,
+mag/compass, shoe, and quaternion families.
+
 The main inference path is:
 
 ```text
@@ -29,9 +34,12 @@ required for basic inference.
 ```mermaid
 flowchart TD
     subgraph Raw["Raw batch from OpportunityDataset"]
-        A0["BACK_IMU_acc<br/>(B, T, 3)"]
-        Q0["BACK_IMU_quat<br/>(B, T, 4)"]
-        R0["REED_DISHWASHER_S3<br/>(B, T, 1)"]
+        A0["Acceleration streams<br/>e.g. BACK_IMU_acc, CUP_accX_set, DOOR1_acc<br/>(B, T, 3) each"]
+        G0["Gyro / angular velocity streams<br/>e.g. BACK_IMU_gyro, CUP_gyro, L_SHOE_ANGVEL_BODY<br/>(B, T, 2-3) each"]
+        M0["Mag / compass streams<br/>e.g. BACK_IMU_mag, L_SHOE_COMPASS<br/>(B, T, 1-3) each"]
+        Q0["Quaternion streams<br/>e.g. BACK_IMU_quat, RUA_IMU_quat<br/>(B, T, 4) each"]
+        S0["Shoe streams<br/>e.g. L_SHOE_EU, R_SHOE_NAV<br/>(B, T, 1-3) each"]
+        R0["Reed/contact streams<br/>e.g. REED_DISHWASHER_S3, REED_FRIDGE_S1<br/>(B, T, 1) each"]
         Y0["Optional label stream<br/>label_HL_Activity<br/>(B, T, 1)"]
     end
 
@@ -46,28 +54,28 @@ flowchart TD
     end
 
     subgraph Enc["Per-modality encoders"]
-        EA["acc encoder<br/>Conv1d -> ReLU -> stride-2 Conv1d<br/>-> optional residuals -> 1x1 Conv<br/>z_e_acc: (B, T/2, D)"]
-        EQ["quat encoder<br/>Conv1d -> ReLU -> stride-2 Conv1d<br/>-> optional residuals -> 1x1 Conv<br/>z_e_quat: (B, T/2, D)"]
-        ER["reed encoder<br/>Conv1d -> ReLU -> stride-2 Conv1d<br/>-> optional residuals -> 1x1 Conv<br/>z_e_reed: (B, T/2, D)"]
+        EA["one encoder per selected stream<br/>Conv1d -> ReLU -> stride-2 Conv1d<br/>-> optional residuals -> 1x1 Conv<br/>z_e_m: (B, T/2, D)"]
+        EQ["same encoder pattern<br/>different weights per stream"]
+        ER["full-scale runner creates<br/>89 encoder branches"]
     end
 
     subgraph VQ["Shared partitioned vector quantizer"]
         CB["One shared codebook tensor"]
-        CBA["BACK_IMU_acc slice<br/>e.g. 128 codes"]
-        CBQ["BACK_IMU_quat slice<br/>e.g. 128 codes"]
-        CBR["REED_DISHWASHER_S3 slice<br/>e.g. 64 codes"]
-        ZA["z_q_acc + indices + perplexity"]
-        ZQ["z_q_quat + indices + perplexity"]
-        ZR["z_q_reed + indices + perplexity"]
+        CBA["stream slice<br/>acc/gyro/mag/etc."]
+        CBQ["stream slice<br/>quat/shoe/etc."]
+        CBR["stream slice<br/>reed/contact"]
+        ZA["z_q_m + indices + perplexity"]
+        ZQ["z_q_m + indices + perplexity"]
+        ZR["z_q_m + indices + perplexity"]
     end
 
     subgraph RawDec["Per-modality raw decoders"]
-        DA["acc raw decoder<br/>1x1 Conv -> residual block<br/>-> ConvTranspose1d -> Conv1d"]
-        DQ["quat raw decoder<br/>1x1 Conv -> residual block<br/>-> ConvTranspose1d -> Conv1d"]
-        DR["reed raw decoder<br/>1x1 Conv -> residual block<br/>-> ConvTranspose1d -> Conv1d"]
-        RA["recon_acc<br/>(B, T, 3)"]
-        RQ["recon_quat<br/>(B, T, 4)"]
-        RR["recon_reed<br/>(B, T, 1)"]
+        DA["one raw decoder per selected stream<br/>1x1 Conv -> residual block<br/>-> ConvTranspose1d -> Conv1d"]
+        DQ["same decoder pattern<br/>different weights per stream"]
+        DR["full-scale runner creates<br/>89 decoder branches"]
+        RA["recon_m<br/>(B, T, C_m)"]
+        RQ["recon_m<br/>(B, T, C_m)"]
+        RR["recon_m<br/>(B, T, C_m)"]
     end
 
     subgraph AuxDec["Optional transform decoder heads"]
@@ -96,7 +104,10 @@ flowchart TD
     end
 
     A0 --> S
+    G0 --> S
+    M0 --> S
     Q0 --> S
+    S0 --> S
     R0 --> S
     S --> Z
     Z --> FD
