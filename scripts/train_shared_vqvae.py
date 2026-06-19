@@ -167,7 +167,7 @@ def main():
     p.add_argument('--use_temporal_interpolator', action='store_true')
     p.add_argument('--frame_drop_prob', type=float, default=0.0)
     p.add_argument('--min_keep_frames', type=int, default=8)
-    p.add_argument('--label_conditioning', action='store_true')
+    p.add_argument('--label_conditioning', action='store_true', help='Use inference-safe sensor context plus optional training-only label alignment.')
     p.add_argument('--label_stream', default='label_HL_Activity')
     p.add_argument('--label_vocab_size', type=int, default=4096)
     p.add_argument('--label_embedding_dim', type=int, default=32)
