@@ -23,6 +23,7 @@ flowchart LR
     end
 
     subgraph Quantizer["Shared partitioned codebook"]
+        L["Optional label conditioner<br/>activity label embedding + sensor embedding"]
         CA["acc slice<br/>128 codes"]
         CQ["quat slice<br/>128 codes"]
         CR["reed slice<br/>64 codes"]
@@ -44,9 +45,9 @@ flowchart LR
     Q --> N
     R --> N
     N --> D --> I
-    I --> EA --> CA --> DA --> LA
-    I --> EQ --> CQ --> DQ --> LA
-    I --> ER --> CR --> DR --> LA
+    I --> EA --> L --> CA --> DA --> LA
+    I --> EQ --> L --> CQ --> DQ --> LA
+    I --> ER --> L --> CR --> DR --> LA
     CA --> LQ
     CQ --> LQ
     CR --> LQ
@@ -64,6 +65,10 @@ flowchart LR
 - Optional temporal augmentation can randomly drop frames. A learnable temporal
   interpolator first linearly resamples the remaining frames to the configured
   input length, then applies a small learnable convolutional refinement.
+- Optional label-aware quantization embeds an activity label and a sensor id,
+  adds that context to the encoder latent before codebook lookup, and can add a
+  small CLIP-style contrastive loss between pooled sensor latents and activity
+  label embeddings.
 
 ## Suggested Changes
 
@@ -94,6 +99,12 @@ flowchart LR
 6. Add validation reconstruction plots.
 
    Save a small plot every epoch comparing input vs reconstruction for each modality. This is more useful than only watching loss.
+
+7. Tune label conditioning carefully.
+
+   Label conditioning can help make codes activity-aware, but a large contrastive
+   weight can overpower reconstruction. Start around `0.01` to `0.05` and watch
+   reconstruction loss and perplexity together.
 
 ## Good Next Experiment
 

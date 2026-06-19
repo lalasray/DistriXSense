@@ -89,6 +89,41 @@ class Decoder1D(nn.Module):
         return x
 
 
+class LabelConditioner(nn.Module):
+    """Small label/sensor context module used to condition quantization."""
+    def __init__(self, modality_names, label_vocab_size: int, latent_dim: int, label_embedding_dim: int = None):
+        super().__init__()
+        label_embedding_dim = int(label_embedding_dim or latent_dim)
+        self.modality_to_idx = {name: i for i, name in enumerate(modality_names)}
+        self.label_embedding = nn.Embedding(label_vocab_size, label_embedding_dim)
+        self.sensor_embedding = nn.Embedding(len(self.modality_to_idx), label_embedding_dim)
+        self.to_latent = nn.Sequential(
+            nn.Linear(label_embedding_dim, latent_dim),
+            nn.GELU(),
+            nn.Linear(latent_dim, latent_dim),
+        )
+        self.latent_projection = nn.Linear(latent_dim, label_embedding_dim)
+
+    def context(self, modality: str, labels: torch.Tensor) -> torch.Tensor:
+        labels = labels.to(dtype=torch.long).clamp(min=0, max=self.label_embedding.num_embeddings - 1)
+        modality_idx = torch.full(
+            labels.shape,
+            self.modality_to_idx[modality],
+            dtype=torch.long,
+            device=labels.device,
+        )
+        context = self.label_embedding(labels) + self.sensor_embedding(modality_idx)
+        return self.to_latent(context)
+
+    def contrastive_loss(self, pooled_latent: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+        labels = labels.to(dtype=torch.long).clamp(min=0, max=self.label_embedding.num_embeddings - 1)
+        sensor_vec = F.normalize(self.latent_projection(pooled_latent), dim=-1)
+        label_vec = F.normalize(self.label_embedding(labels), dim=-1)
+        logits = sensor_vec @ label_vec.t()
+        targets = torch.arange(labels.size(0), device=labels.device)
+        return 0.5 * (F.cross_entropy(logits, targets) + F.cross_entropy(logits.t(), targets))
+
+
 class VectorQuantizer(nn.Module):
     """A simple (non-EMA) vector quantizer with straight-through estimator."""
     def __init__(self, num_embeddings: int = 512, embedding_dim: int = 32, beta: float = 0.25):
@@ -96,7 +131,8 @@ class VectorQuantizer(nn.Module):
         self.num_embeddings = num_embeddings
         self.embedding_dim = embedding_dim
         self.beta = beta
-        self.embeddings = nn.Parameter(torch.randn(num_embeddings, embedding_dim))
+        self.embeddings = nn.Parameter(torch.empty(num_embeddings, embedding_dim))
+        nn.init.uniform_(self.embeddings, -1.0 / num_embeddings, 1.0 / num_embeddings)
 
     def forward(self, z_e: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, Dict[str, torch.Tensor]]:
         # z_e: (B, T, D)
@@ -134,7 +170,8 @@ class SharedVectorQuantizer(nn.Module):
             self.offsets[k] = total
             total += int(v)
         self.total_embeddings = total
-        self.embeddings = nn.Parameter(torch.randn(self.total_embeddings, embedding_dim))
+        self.embeddings = nn.Parameter(torch.empty(self.total_embeddings, embedding_dim))
+        nn.init.uniform_(self.embeddings, -1.0 / self.total_embeddings, 1.0 / self.total_embeddings)
 
     def quantize(self, z_e: torch.Tensor, modality: str) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, dict]:
         """Quantize `z_e` (B, T, D) using the codebook slice for `modality`.
@@ -236,7 +273,8 @@ class EMAVectorQuantizer(nn.Module):
         self.decay = decay
         self.eps = eps
         self.beta = beta
-        embed = torch.randn(num_embeddings, embedding_dim)
+        embed = torch.empty(num_embeddings, embedding_dim)
+        nn.init.uniform_(embed, -1.0 / num_embeddings, 1.0 / num_embeddings)
         self.register_buffer('embeddings', embed)
         self.register_buffer('cluster_size', torch.zeros(num_embeddings))
         self.register_buffer('embed_avg', torch.zeros(num_embeddings, embedding_dim))
@@ -287,7 +325,8 @@ class SharedEMAVectorQuantizer(nn.Module):
             self.offsets[k] = total
             total += int(v)
         self.total_embeddings = total
-        embed = torch.randn(self.total_embeddings, embedding_dim)
+        embed = torch.empty(self.total_embeddings, embedding_dim)
+        nn.init.uniform_(embed, -1.0 / self.total_embeddings, 1.0 / self.total_embeddings)
         self.register_buffer('embeddings', embed)
         self.register_buffer('cluster_size', torch.zeros(self.total_embeddings))
         self.register_buffer('embed_avg', torch.zeros(self.total_embeddings, embedding_dim))
@@ -311,18 +350,28 @@ class SharedEMAVectorQuantizer(nn.Module):
         if self.training:
             one_hot = F.one_hot(idx_local, num_classes=size).float()
             counts = one_hot.sum(dim=0)
-            embed_sum = one_hot.t() @ flat
-            # update global buffers
-            self.cluster_size[start:start+size].mul_(self.decay).add_(counts * (1 - self.decay))
-            self.embed_avg[start:start+size].mul_(self.decay).add_(embed_sum * (1 - self.decay))
-            n_cluster = (self.cluster_size[start:start+size] + self.eps)
-            new_emb = self.embed_avg[start:start+size] / n_cluster.unsqueeze(1)
-            self.embeddings[start:start+size].copy_(new_emb)
+            embed_sum = one_hot.t() @ flat.detach()
+            with torch.no_grad():
+                cluster = self.cluster_size[start:start+size]
+                avg = self.embed_avg[start:start+size]
+                cluster.mul_(self.decay).add_(counts * (1 - self.decay))
+                avg.mul_(self.decay).add_(embed_sum * (1 - self.decay))
+                used = cluster > self.eps
+                updated = avg[used] / cluster[used].unsqueeze(1)
+                self.embeddings[start:start+size][used].copy_(updated)
 
         counts = torch.bincount(idx_local, minlength=size).float()
         probs = counts / counts.sum().clamp(min=1.0)
         perplexity = float(torch.exp(-torch.sum(probs * torch.log(probs + 1e-10))))
-        return z_q_st, loss, idx_global.view(B, T), {'perplexity': perplexity, 'counts': counts}
+        zero = commitment.new_zeros(())
+        stats = {
+            'perplexity': perplexity,
+            'counts': counts,
+            'vq_loss': loss,
+            'codebook_loss': zero,
+            'commitment_loss': commitment,
+        }
+        return z_q_st, loss, idx_global.view(B, T), stats
 
     def init_embeddings_kmeans(self, modality: str, samples: torch.Tensor, n_iter: int = 20, seed: int = 0):
         # reuse previous implementation for k-means init
@@ -413,10 +462,16 @@ class MultiModalSharedVQVAE(nn.Module):
     """
     def __init__(self, modality_dims: Dict[str, int], modality_codebook_sizes: Dict[str, int],
                  hidden: int = 64, latent_dim: int = 32, beta: float = 0.25,
-                 input_len: int = None, use_temporal_interpolator: bool = False):
+                 input_len: int = None, use_temporal_interpolator: bool = False,
+                 quantizer_type: str = 'standard', label_conditioning: bool = False,
+                 label_vocab_size: int = 512, label_embedding_dim: int = None,
+                 label_contrastive_weight: float = 0.0):
         super().__init__()
         self.input_len = input_len
         self.use_temporal_interpolator = bool(use_temporal_interpolator)
+        self.quantizer_type = quantizer_type
+        self.label_conditioning = bool(label_conditioning)
+        self.label_contrastive_weight = float(label_contrastive_weight)
         # encoders and decoders
         self.temporal_interpolators = nn.ModuleDict()
         if self.use_temporal_interpolator:
@@ -434,11 +489,23 @@ class MultiModalSharedVQVAE(nn.Module):
             name: Decoder1D(out_ch, hidden=hidden, latent_dim=latent_dim)
             for name, out_ch in modality_dims.items()
         })
-        # shared quantizer
-        self.quantizer = SharedVectorQuantizer(modality_codebook_sizes, embedding_dim=latent_dim, beta=beta)
+        self.label_conditioner = None
+        if self.label_conditioning:
+            self.label_conditioner = LabelConditioner(
+                modality_names=list(modality_dims.keys()),
+                label_vocab_size=label_vocab_size,
+                latent_dim=latent_dim,
+                label_embedding_dim=label_embedding_dim,
+            )
+        if quantizer_type == 'standard':
+            self.quantizer = SharedVectorQuantizer(modality_codebook_sizes, embedding_dim=latent_dim, beta=beta)
+        elif quantizer_type == 'ema':
+            self.quantizer = SharedEMAVectorQuantizer(modality_codebook_sizes, embedding_dim=latent_dim, beta=beta)
+        else:
+            raise ValueError(f'Unknown quantizer_type: {quantizer_type}')
 
     def forward(self, inputs: Dict[str, torch.Tensor], input_lengths: Dict[str, torch.Tensor] = None,
-                targets: Dict[str, torch.Tensor] = None) -> Dict[str, Dict]:
+                targets: Dict[str, torch.Tensor] = None, labels: torch.Tensor = None) -> Dict[str, Dict]:
         out = {}
         total_loss = 0.0
         for name, x in inputs.items():
@@ -449,10 +516,19 @@ class MultiModalSharedVQVAE(nn.Module):
                 x = self.temporal_interpolators[name](x, lengths=lengths)
             target = targets.get(name, x) if targets else x
             z_e = self.encoders[name](x)  # (B, T', D)
-            z_q, qloss, idx, stats = self.quantizer.quantize(z_e, modality=name)
+            z_for_quant = z_e
+            label_contrastive_loss = None
+            if self.label_conditioning and labels is not None:
+                context = self.label_conditioner.context(name, labels).unsqueeze(1)
+                z_for_quant = z_e + context
+                if self.label_contrastive_weight > 0:
+                    label_contrastive_loss = self.label_conditioner.contrastive_loss(z_e.mean(dim=1), labels)
+            z_q, qloss, idx, stats = self.quantizer.quantize(z_for_quant, modality=name)
             recon = self.decoders[name](z_q, target_len=target.size(1))
             recon_loss = F.mse_loss(recon, target)
             loss = recon_loss + qloss
+            if label_contrastive_loss is not None:
+                loss = loss + self.label_contrastive_weight * label_contrastive_loss
             total_loss = total_loss + loss
             out[name] = {
                 'recon': recon,
@@ -461,6 +537,7 @@ class MultiModalSharedVQVAE(nn.Module):
                 'vq_loss': qloss,
                 'codebook_loss': stats.get('codebook_loss') if isinstance(stats, dict) else None,
                 'commitment_loss': stats.get('commitment_loss') if isinstance(stats, dict) else None,
+                'label_contrastive_loss': label_contrastive_loss,
                 'indices': idx,
                 'perplexity': stats.get('perplexity') if isinstance(stats, dict) else None,
                 'counts': stats.get('counts') if isinstance(stats, dict) else None,

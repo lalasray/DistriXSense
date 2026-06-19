@@ -67,6 +67,19 @@ def drop_random_frames(x: torch.Tensor, drop_prob: float, min_keep: int):
     return out, torch.tensor(lengths, dtype=torch.long)
 
 
+def majority_labels(label_stream: torch.Tensor) -> torch.Tensor:
+    # label_stream: (B, T, 1) or (B, T); zeros are treated as null/background.
+    labels = label_stream.squeeze(-1).long()
+    out = []
+    for row in labels:
+        valid = row[row != 0]
+        if valid.numel() == 0:
+            out.append(row.new_tensor(0))
+        else:
+            out.append(torch.mode(valid).values)
+    return torch.stack(out)
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('--root', default='dataset/Opportunity/extracted/OpportunityUCIDataset/dataset')
@@ -77,8 +90,10 @@ def main():
     p.add_argument('--batch', type=int, default=8)
     p.add_argument('--epochs', type=int, default=2)
     p.add_argument('--lr', type=float, default=1e-4)
+    p.add_argument('--beta', type=float, default=0.25)
     p.add_argument('--checkpoint_dir', default='checkpoints')
     p.add_argument('--group_map', default='dataset/Opportunity/group_map_official.json')
+    p.add_argument('--quantizer', choices=('standard', 'ema'), default='standard')
     p.add_argument('--device', choices=('auto', 'cuda', 'cpu'), default='auto')
     p.add_argument('--amp', action='store_true', help='Use CUDA automatic mixed precision.')
     p.add_argument('--num_workers', type=int, default=0)
@@ -88,6 +103,11 @@ def main():
     p.add_argument('--use_temporal_interpolator', action='store_true')
     p.add_argument('--frame_drop_prob', type=float, default=0.0)
     p.add_argument('--min_keep_frames', type=int, default=8)
+    p.add_argument('--label_conditioning', action='store_true')
+    p.add_argument('--label_stream', default='label_HL_Activity')
+    p.add_argument('--label_vocab_size', type=int, default=4096)
+    p.add_argument('--label_embedding_dim', type=int, default=32)
+    p.add_argument('--label_contrastive_weight', type=float, default=0.0)
     args = p.parse_args()
 
     modalities = parse_modality_str(args.modalities)
@@ -123,6 +143,8 @@ def main():
             f'Requested modalities are missing from the dataset/group map: {missing_modalities}. '
             f'Available examples: {preview}'
         )
+    if args.label_conditioning and args.label_stream not in available_modalities:
+        raise ValueError(f'Label stream {args.label_stream!r} is missing from the dataset/group map.')
 
     ds = full_ds
     if args.data_fraction < 1:
@@ -151,8 +173,14 @@ def main():
         modality_codebook_sizes=codebook,
         hidden=64,
         latent_dim=32,
+        beta=args.beta,
         input_len=args.seq_len,
         use_temporal_interpolator=args.use_temporal_interpolator,
+        quantizer_type=args.quantizer,
+        label_conditioning=args.label_conditioning,
+        label_vocab_size=args.label_vocab_size,
+        label_embedding_dim=args.label_embedding_dim,
+        label_contrastive_weight=args.label_contrastive_weight,
     ).to(device)
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)
     scaler = torch.amp.GradScaler('cuda', enabled=amp_enabled)
@@ -169,6 +197,9 @@ def main():
             inputs = {}
             input_lengths = {}
             targets = {}
+            condition_labels = None
+            if args.label_conditioning:
+                condition_labels = majority_labels(streams[args.label_stream]).to(device, non_blocking=(device.type == 'cuda'))
             for m in modalities:
                 if m not in streams:
                     continue
@@ -188,7 +219,7 @@ def main():
                 continue
             opt.zero_grad()
             with torch.amp.autocast(device_type=device.type, enabled=amp_enabled):
-                out = model(inputs, input_lengths=input_lengths, targets=targets)
+                out = model(inputs, input_lengths=input_lengths, targets=targets, labels=condition_labels)
                 total_loss = out.get('total_loss') if 'total_loss' in out else sum(v['loss'] for v in out.values())
             if not torch.isfinite(total_loss):
                 raise RuntimeError(f'Non-finite loss at epoch {epoch}, batch {i}, step {step + 1}. Stopping before saving a bad checkpoint.')
@@ -203,6 +234,7 @@ def main():
             recon_loss = mean_metric(out, modalities, 'recon_loss')
             codebook_loss = mean_metric(out, modalities, 'codebook_loss')
             commitment_loss = mean_metric(out, modalities, 'commitment_loss')
+            label_contrastive_loss = mean_metric(out, modalities, 'label_contrastive_loss')
             perplexity = mean_metric(out, modalities, 'perplexity')
             postfix = {'loss': f'{float(total_loss.detach()):.4f}', 'step': step}
             if recon_loss is not None:
@@ -211,6 +243,8 @@ def main():
                 postfix['codebook'] = f'{codebook_loss:.4f}'
             if commitment_loss is not None:
                 postfix['commit'] = f'{commitment_loss:.4f}'
+            if label_contrastive_loss is not None:
+                postfix['label'] = f'{label_contrastive_loss:.4f}'
             if perplexity is not None:
                 postfix['ppl'] = f'{perplexity:.2f}'
             progress.set_postfix(postfix)

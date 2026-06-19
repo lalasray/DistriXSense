@@ -66,6 +66,18 @@ powershell -ExecutionPolicy Bypass -File scripts\run_vqvae_cuda_10pct.ps1 -Epoch
 powershell -ExecutionPolicy Bypass -File scripts\run_vqvae_cuda_10pct_interp.ps1 -Epochs 2 -Batch 8
 ```
 
+10% IMU-only run with EMA codebook updates:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\run_vqvae_cuda_10pct_imu_ema.ps1 -Epochs 10 -Batch 32
+```
+
+10% IMU-only run with activity-aware quantization:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\run_vqvae_cuda_10pct_imu_label.ps1 -Epochs 10 -Batch 32
+```
+
 Add `-Amp` to either command to use CUDA mixed precision.
 
 Checkpoints are written under `checkpoints\`.
