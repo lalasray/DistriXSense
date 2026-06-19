@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from dataloaders.opportunity_pytorch_dataset import OpportunityDataset
+from dataloaders.opportunity_pytorch_dataset import OpportunityDataset, opportunity_collate
 from Code.vqvae.models import MultiModalSharedVQVAE
 
 
@@ -38,7 +38,7 @@ def main():
     codebook = parse_modality_str(args.codebook)
 
     ds = OpportunityDataset(root=args.root, seq_len=32)
-    dl = DataLoader(ds, batch_size=args.batch, shuffle=True)
+    dl = DataLoader(ds, batch_size=args.batch, shuffle=True, collate_fn=opportunity_collate)
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = MultiModalSharedVQVAE(modality_dims=modalities, modality_codebook_sizes=codebook, hidden=64, latent_dim=32).to(device)
