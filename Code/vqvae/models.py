@@ -104,15 +104,14 @@ class LabelConditioner(nn.Module):
         )
         self.latent_projection = nn.Linear(latent_dim, label_embedding_dim)
 
-    def context(self, modality: str, labels: torch.Tensor) -> torch.Tensor:
-        labels = labels.to(dtype=torch.long).clamp(min=0, max=self.label_embedding.num_embeddings - 1)
+    def sensor_context(self, modality: str, batch_size: int, device) -> torch.Tensor:
         modality_idx = torch.full(
-            labels.shape,
+            (batch_size,),
             self.modality_to_idx[modality],
             dtype=torch.long,
-            device=labels.device,
+            device=device,
         )
-        context = self.label_embedding(labels) + self.sensor_embedding(modality_idx)
+        context = self.sensor_embedding(modality_idx)
         return self.to_latent(context)
 
     def contrastive_loss(self, pooled_latent: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
@@ -518,10 +517,10 @@ class MultiModalSharedVQVAE(nn.Module):
             z_e = self.encoders[name](x)  # (B, T', D)
             z_for_quant = z_e
             label_contrastive_loss = None
-            if self.label_conditioning and labels is not None:
-                context = self.label_conditioner.context(name, labels).unsqueeze(1)
+            if self.label_conditioning:
+                context = self.label_conditioner.sensor_context(name, z_e.size(0), z_e.device).unsqueeze(1)
                 z_for_quant = z_e + context
-                if self.label_contrastive_weight > 0:
+                if labels is not None and self.label_contrastive_weight > 0:
                     label_contrastive_loss = self.label_conditioner.contrastive_loss(z_e.mean(dim=1), labels)
             z_q, qloss, idx, stats = self.quantizer.quantize(z_for_quant, modality=name)
             recon = self.decoders[name](z_q, target_len=target.size(1))
