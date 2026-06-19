@@ -5,6 +5,7 @@ from pathlib import Path
 import time
 import torch
 from torch.utils.data import DataLoader
+from torch.utils.data import Subset
 from tqdm.auto import tqdm
 
 import sys
@@ -38,6 +39,7 @@ def main():
     p.add_argument('--device', choices=('auto', 'cuda', 'cpu'), default='auto')
     p.add_argument('--amp', action='store_true', help='Use CUDA automatic mixed precision.')
     p.add_argument('--num_workers', type=int, default=0)
+    p.add_argument('--data_fraction', type=float, default=1.0, help='Fraction of dataset windows to train on, in (0, 1].')
     args = p.parse_args()
 
     modalities = parse_modality_str(args.modalities)
@@ -52,7 +54,16 @@ def main():
     device = torch.device(device_name)
     amp_enabled = bool(args.amp and device.type == 'cuda')
 
-    ds = OpportunityDataset(root=args.root, seq_len=args.seq_len, step=args.step)
+    if not 0 < args.data_fraction <= 1:
+        raise ValueError('--data_fraction must be greater than 0 and less than or equal to 1.')
+
+    full_ds = OpportunityDataset(root=args.root, seq_len=args.seq_len, step=args.step)
+    ds = full_ds
+    if args.data_fraction < 1:
+        subset_len = max(1, int(len(full_ds) * args.data_fraction))
+        generator = torch.Generator().manual_seed(0)
+        indices = torch.randperm(len(full_ds), generator=generator)[:subset_len].tolist()
+        ds = Subset(full_ds, indices)
     dl = DataLoader(
         ds,
         batch_size=args.batch,
@@ -67,7 +78,7 @@ def main():
     if device.type == 'cuda':
         print(f'CUDA device: {torch.cuda.get_device_name(0)}')
         print(f'AMP: {amp_enabled}')
-    print(f'Dataset windows: {len(ds)}')
+    print(f'Dataset windows: {len(ds)} / {len(full_ds)} ({args.data_fraction:.0%})')
 
     model = MultiModalSharedVQVAE(modality_dims=modalities, modality_codebook_sizes=codebook, hidden=64, latent_dim=32).to(device)
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)
