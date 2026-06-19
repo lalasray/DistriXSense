@@ -60,6 +60,12 @@ Small CUDA run using 10% of the data and 4 workers:
 powershell -ExecutionPolicy Bypass -File scripts\run_vqvae_cuda_10pct.ps1 -Epochs 2 -Batch 8
 ```
 
+10% run with random frame-drop augmentation and learnable temporal interpolation:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\run_vqvae_cuda_10pct_interp.ps1 -Epochs 2 -Batch 8
+```
+
 Add `-Amp` to either command to use CUDA mixed precision.
 
 Checkpoints are written under `checkpoints\`.

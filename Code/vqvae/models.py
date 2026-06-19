@@ -5,6 +5,49 @@ from typing import Dict, Tuple
 import math
 
 
+class LearnableTemporalInterpolator(nn.Module):
+    """Resample variable-length sequences to a fixed length, then learn a small refinement."""
+    def __init__(self, channels: int, target_len: int):
+        super().__init__()
+        self.target_len = int(target_len)
+        self.refine = nn.Sequential(
+            nn.Conv1d(channels, channels, kernel_size=3, padding=1, groups=channels),
+            nn.GELU(),
+            nn.Conv1d(channels, channels, kernel_size=1),
+        )
+        nn.init.zeros_(self.refine[-1].weight)
+        nn.init.zeros_(self.refine[-1].bias)
+
+    def forward(self, x: torch.Tensor, lengths: torch.Tensor = None) -> torch.Tensor:
+        # x: (B, T, C), lengths: valid frames before padding
+        B, T, C = x.shape
+        if lengths is None:
+            lengths = torch.full((B,), T, dtype=torch.long, device=x.device)
+        else:
+            lengths = lengths.to(device=x.device, dtype=torch.long).clamp(min=1, max=T)
+
+        if T == self.target_len and torch.all(lengths == T):
+            base = x
+        else:
+            pieces = []
+            for i in range(B):
+                valid = x[i:i + 1, :int(lengths[i].item()), :]
+                if valid.size(1) == 1:
+                    resized = valid.expand(-1, self.target_len, -1)
+                else:
+                    resized = F.interpolate(
+                        valid.permute(0, 2, 1),
+                        size=self.target_len,
+                        mode='linear',
+                        align_corners=False,
+                    ).permute(0, 2, 1)
+                pieces.append(resized)
+            base = torch.cat(pieces, dim=0)
+
+        residual = self.refine(base.permute(0, 2, 1)).permute(0, 2, 1)
+        return base + residual
+
+
 class Encoder1D(nn.Module):
     """Very simple 1D encoder: Conv1d -> ReLU -> Conv1d -> projection to latent_dim."""
     def __init__(self, in_channels: int, hidden: int = 64, latent_dim: int = 32):
@@ -369,9 +412,20 @@ class MultiModalSharedVQVAE(nn.Module):
     `modality_codebook_sizes` maps modality name -> number of embeddings in its slice.
     """
     def __init__(self, modality_dims: Dict[str, int], modality_codebook_sizes: Dict[str, int],
-                 hidden: int = 64, latent_dim: int = 32, beta: float = 0.25):
+                 hidden: int = 64, latent_dim: int = 32, beta: float = 0.25,
+                 input_len: int = None, use_temporal_interpolator: bool = False):
         super().__init__()
+        self.input_len = input_len
+        self.use_temporal_interpolator = bool(use_temporal_interpolator)
         # encoders and decoders
+        self.temporal_interpolators = nn.ModuleDict()
+        if self.use_temporal_interpolator:
+            if input_len is None:
+                raise ValueError('input_len is required when use_temporal_interpolator=True')
+            self.temporal_interpolators = nn.ModuleDict({
+                name: LearnableTemporalInterpolator(in_ch, target_len=input_len)
+                for name, in_ch in modality_dims.items()
+            })
         self.encoders = nn.ModuleDict({
             name: Encoder1D(in_ch, hidden=hidden, latent_dim=latent_dim)
             for name, in_ch in modality_dims.items()
@@ -383,16 +437,21 @@ class MultiModalSharedVQVAE(nn.Module):
         # shared quantizer
         self.quantizer = SharedVectorQuantizer(modality_codebook_sizes, embedding_dim=latent_dim, beta=beta)
 
-    def forward(self, inputs: Dict[str, torch.Tensor]) -> Dict[str, Dict]:
+    def forward(self, inputs: Dict[str, torch.Tensor], input_lengths: Dict[str, torch.Tensor] = None,
+                targets: Dict[str, torch.Tensor] = None) -> Dict[str, Dict]:
         out = {}
         total_loss = 0.0
         for name, x in inputs.items():
             if name not in self.encoders:
                 raise KeyError(f"Unknown modality {name}")
+            lengths = input_lengths.get(name) if input_lengths else None
+            if self.use_temporal_interpolator:
+                x = self.temporal_interpolators[name](x, lengths=lengths)
+            target = targets.get(name, x) if targets else x
             z_e = self.encoders[name](x)  # (B, T', D)
             z_q, qloss, idx, stats = self.quantizer.quantize(z_e, modality=name)
-            recon = self.decoders[name](z_q, target_len=x.size(1))
-            recon_loss = F.mse_loss(recon, x)
+            recon = self.decoders[name](z_q, target_len=target.size(1))
+            recon_loss = F.mse_loss(recon, target)
             loss = recon_loss + qloss
             total_loss = total_loss + loss
             out[name] = {

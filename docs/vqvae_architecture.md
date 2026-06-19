@@ -12,6 +12,8 @@ flowchart LR
 
     subgraph Prep["Training preprocessing"]
         N["Per-batch normalization<br/>nan_to_num + channel z-score"]
+        D["Optional frame-drop augmentation"]
+        I["Optional learnable temporal interpolator<br/>variable length -> fixed T"]
     end
 
     subgraph Encoders["Separate 1D encoders"]
@@ -41,9 +43,10 @@ flowchart LR
     A --> N
     Q --> N
     R --> N
-    N --> EA --> CA --> DA --> LA
-    N --> EQ --> CQ --> DQ --> LA
-    N --> ER --> CR --> DR --> LA
+    N --> D --> I
+    I --> EA --> CA --> DA --> LA
+    I --> EQ --> CQ --> DQ --> LA
+    I --> ER --> CR --> DR --> LA
     CA --> LQ
     CQ --> LQ
     CR --> LQ
@@ -58,6 +61,9 @@ flowchart LR
 - The encoder downsamples time by 2 using a strided convolution.
 - The decoder upsamples time using `ConvTranspose1d`.
 - Training currently normalizes each batch per modality/channel before feeding the model.
+- Optional temporal augmentation can randomly drop frames. A learnable temporal
+  interpolator first linearly resamples the remaining frames to the configured
+  input length, then applies a small learnable convolutional refinement.
 
 ## Suggested Changes
 

@@ -40,6 +40,33 @@ def mean_metric(out: dict, modalities: dict, key: str):
     return sum(values) / len(values)
 
 
+def drop_random_frames(x: torch.Tensor, drop_prob: float, min_keep: int):
+    B, T, C = x.shape
+    if drop_prob <= 0:
+        lengths = torch.full((B,), T, dtype=torch.long)
+        return x, lengths
+
+    min_keep = max(1, min(int(min_keep), T))
+    sequences = []
+    lengths = []
+    for i in range(B):
+        keep = torch.rand(T) > drop_prob
+        if int(keep.sum()) < min_keep:
+            chosen = torch.randperm(T)[:min_keep]
+            keep = torch.zeros(T, dtype=torch.bool)
+            keep[chosen] = True
+        idx = torch.nonzero(keep, as_tuple=False).flatten().sort().values
+        seq = x[i, idx, :]
+        sequences.append(seq)
+        lengths.append(seq.size(0))
+
+    max_len = max(lengths)
+    out = x.new_zeros((B, max_len, C))
+    for i, seq in enumerate(sequences):
+        out[i, :seq.size(0), :] = seq
+    return out, torch.tensor(lengths, dtype=torch.long)
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('--root', default='dataset/Opportunity/extracted/OpportunityUCIDataset/dataset')
@@ -58,6 +85,9 @@ def main():
     p.add_argument('--data_fraction', type=float, default=1.0, help='Fraction of dataset windows to train on, in (0, 1].')
     p.add_argument('--normalize_batch', action=argparse.BooleanOptionalAction, default=True)
     p.add_argument('--grad_clip', type=float, default=1.0)
+    p.add_argument('--use_temporal_interpolator', action='store_true')
+    p.add_argument('--frame_drop_prob', type=float, default=0.0)
+    p.add_argument('--min_keep_frames', type=int, default=8)
     args = p.parse_args()
 
     modalities = parse_modality_str(args.modalities)
@@ -74,6 +104,10 @@ def main():
 
     if not 0 < args.data_fraction <= 1:
         raise ValueError('--data_fraction must be greater than 0 and less than or equal to 1.')
+    if args.frame_drop_prob < 0 or args.frame_drop_prob >= 1:
+        raise ValueError('--frame_drop_prob must be greater than or equal to 0 and less than 1.')
+    if args.frame_drop_prob > 0 and not args.use_temporal_interpolator:
+        raise ValueError('--frame_drop_prob requires --use_temporal_interpolator.')
 
     group_map = None
     if args.group_map:
@@ -112,7 +146,14 @@ def main():
         print(f'AMP: {amp_enabled}')
     print(f'Dataset windows: {len(ds)} / {len(full_ds)} ({args.data_fraction:.1%})')
 
-    model = MultiModalSharedVQVAE(modality_dims=modalities, modality_codebook_sizes=codebook, hidden=64, latent_dim=32).to(device)
+    model = MultiModalSharedVQVAE(
+        modality_dims=modalities,
+        modality_codebook_sizes=codebook,
+        hidden=64,
+        latent_dim=32,
+        input_len=args.seq_len,
+        use_temporal_interpolator=args.use_temporal_interpolator,
+    ).to(device)
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)
     scaler = torch.amp.GradScaler('cuda', enabled=amp_enabled)
 
@@ -126,6 +167,8 @@ def main():
         for i, batch in enumerate(progress):
             streams = batch['streams']
             inputs = {}
+            input_lengths = {}
+            targets = {}
             for m in modalities:
                 if m not in streams:
                     continue
@@ -135,13 +178,17 @@ def main():
                     mean = x.mean(dim=(0, 1), keepdim=True)
                     std = x.std(dim=(0, 1), keepdim=True).clamp_min(1e-6)
                     x = (x - mean) / std
-                x = x.to(device, non_blocking=(device.type == 'cuda'))
-                inputs[m] = x
+                target = x.to(device, non_blocking=(device.type == 'cuda'))
+                x_input, lengths = drop_random_frames(x, args.frame_drop_prob, args.min_keep_frames)
+                x_input = x_input.to(device, non_blocking=(device.type == 'cuda'))
+                inputs[m] = x_input
+                input_lengths[m] = lengths.to(device, non_blocking=(device.type == 'cuda'))
+                targets[m] = target
             if not inputs:
                 continue
             opt.zero_grad()
             with torch.amp.autocast(device_type=device.type, enabled=amp_enabled):
-                out = model(inputs)
+                out = model(inputs, input_lengths=input_lengths, targets=targets)
                 total_loss = out.get('total_loss') if 'total_loss' in out else sum(v['loss'] for v in out.values())
             if not torch.isfinite(total_loss):
                 raise RuntimeError(f'Non-finite loss at epoch {epoch}, batch {i}, step {step + 1}. Stopping before saving a bad checkpoint.')
