@@ -1,5 +1,6 @@
 """Train MultiModalSharedVQVAE on Opportunity streams with checkpointing and basic logging."""
 import argparse
+import json
 import os
 from pathlib import Path
 import time
@@ -34,12 +35,15 @@ def main():
     p.add_argument('--step', type=int, default=64)
     p.add_argument('--batch', type=int, default=8)
     p.add_argument('--epochs', type=int, default=2)
-    p.add_argument('--lr', type=float, default=1e-3)
+    p.add_argument('--lr', type=float, default=1e-4)
     p.add_argument('--checkpoint_dir', default='checkpoints')
+    p.add_argument('--group_map', default='dataset/Opportunity/group_map_official.json')
     p.add_argument('--device', choices=('auto', 'cuda', 'cpu'), default='auto')
     p.add_argument('--amp', action='store_true', help='Use CUDA automatic mixed precision.')
     p.add_argument('--num_workers', type=int, default=0)
     p.add_argument('--data_fraction', type=float, default=1.0, help='Fraction of dataset windows to train on, in (0, 1].')
+    p.add_argument('--normalize_batch', action=argparse.BooleanOptionalAction, default=True)
+    p.add_argument('--grad_clip', type=float, default=1.0)
     args = p.parse_args()
 
     modalities = parse_modality_str(args.modalities)
@@ -57,7 +61,21 @@ def main():
     if not 0 < args.data_fraction <= 1:
         raise ValueError('--data_fraction must be greater than 0 and less than or equal to 1.')
 
-    full_ds = OpportunityDataset(root=args.root, seq_len=args.seq_len, step=args.step)
+    group_map = None
+    if args.group_map:
+        with open(args.group_map, 'r', encoding='utf-8') as fh:
+            group_map = json.load(fh)
+
+    full_ds = OpportunityDataset(root=args.root, seq_len=args.seq_len, step=args.step, group_map=group_map)
+    available_modalities = set(full_ds.group_map.keys()) if full_ds.group_map else set()
+    missing_modalities = sorted(set(modalities) - available_modalities)
+    if missing_modalities:
+        preview = ', '.join(sorted(available_modalities)[:12])
+        raise ValueError(
+            f'Requested modalities are missing from the dataset/group map: {missing_modalities}. '
+            f'Available examples: {preview}'
+        )
+
     ds = full_ds
     if args.data_fraction < 1:
         subset_len = max(1, int(len(full_ds) * args.data_fraction))
@@ -97,7 +115,13 @@ def main():
             for m in modalities:
                 if m not in streams:
                     continue
-                x = streams[m].float().to(device, non_blocking=(device.type == 'cuda'))
+                x = streams[m].float()
+                x = torch.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
+                if args.normalize_batch:
+                    mean = x.mean(dim=(0, 1), keepdim=True)
+                    std = x.std(dim=(0, 1), keepdim=True).clamp_min(1e-6)
+                    x = (x - mean) / std
+                x = x.to(device, non_blocking=(device.type == 'cuda'))
                 inputs[m] = x
             if not inputs:
                 continue
@@ -105,7 +129,12 @@ def main():
             with torch.amp.autocast(device_type=device.type, enabled=amp_enabled):
                 out = model(inputs)
                 total_loss = out.get('total_loss') if 'total_loss' in out else sum(v['loss'] for v in out.values())
+            if not torch.isfinite(total_loss):
+                raise RuntimeError(f'Non-finite loss at epoch {epoch}, batch {i}, step {step + 1}. Stopping before saving a bad checkpoint.')
             scaler.scale(total_loss).backward()
+            if args.grad_clip > 0:
+                scaler.unscale_(opt)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.grad_clip)
             scaler.step(opt)
             scaler.update()
             epoch_loss += float(total_loss.detach())

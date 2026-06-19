@@ -17,7 +17,10 @@ if (-not (Test-Path $python)) {
     --codebook BACK_IMU_acc:128,BACK_IMU_quat:128,REED_DISHWASHER_S1:64 `
     --batch $Batch `
     --epochs $Epochs `
+    --lr 1e-4 `
     --num_workers 4 `
     --data_fraction 0.10 `
+    --normalize_batch `
+    --grad_clip 1.0 `
     --checkpoint_dir checkpoints\vqvae_10pct `
     $(if ($Amp) { "--amp" })
