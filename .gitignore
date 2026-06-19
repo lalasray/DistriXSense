@@ -1,6 +1,5 @@
 *.zip
 /.venv
-/dataset/CASAS/data
-/dataset/CASAS/floorplans
-/dataset/CASAS/labeled_data
+/dataset/Opportunity
 /dataloaders/__pycache__
+*.log

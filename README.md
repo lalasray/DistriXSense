@@ -3,34 +3,47 @@
 Datasets
 --------
 
-This project uses two external datasets. Place downloads under the `dataset/` subfolder.
+This project recommends placing downloaded datasets under the `dataset/` subfolder.
 
-- CASAS Smart Home (Zenodo record): total ~3.0 GB. Direct file URLs (use a browser or curl/wget):
-	- https://zenodo.org/record/15708568/files/data.zip?download=1
-	- https://zenodo.org/record/15708568/files/labeled_data.zip?download=1
-	- https://zenodo.org/record/15708568/files/floorplans.zip?download=1
+Multimodal datasets we reference in this repository:
 
 - MM‑Fi (MM-Fi: Multi-Modal Non-Intrusive 4D Human Dataset): main archive hosted on Google Drive (~77 GB). Project page and repo:
-	- https://ntu-aiot-lab.github.io/mm-fi
-	- https://github.com/ybhbingo/MMFi_dataset
-	- Google Drive folder: https://drive.google.com/drive/folders/1zDbhfH3BV-xCZVUHmK65EgVV1HMDEYcz?usp=sharing
+  - https://ntu-aiot-lab.github.io/mm-fi
+  - https://github.com/ybhbingo/MMFi_dataset
+  - Google Drive folder: https://drive.google.com/drive/folders/1zDbhfH3BV-xCZVUHmK65EgVV1HMDEYcz?usp=sharing
 
 Automated helper
 ----------------
 
-A helper script is provided to download CASAS automatically and to attempt MM‑Fi download via `gdown` if available:
+Helper scripts are provided to help fetch or prepare multimodal datasets:
 
-- `scripts/download_datasets.py` — run with Python 3. It will download CASAS files into `dataset/CASAS/` and will try to download the MM‑Fi Google Drive folder into `dataset/MMFi/` when `gdown` is installed.
+- `scripts/download_opportunity.py` — run with Python 3 to attempt downloading the Opportunity dataset into `dataset/Opportunity/` (may require manual download depending on host).
+- For MM‑Fi the project provides its own toolbox; automatic download may be attempted with `gdown` but manual download is common due to size.
+
+Recommended multimodal alternatives
+-----------------------------------
+
+If you need multimodal wearable / sensor datasets (accelerometers, gyros, magnetometers, body sensors) consider the Opportunity Activity Recognition dataset (widely used for multimodal activity recognition) and the MM‑Fi dataset (wireless multimodal). Links:
+
+- Opportunity: http://archive.ics.uci.edu/ml/datasets/OPPORTUNITY+Activity+Recognition or http://www.opportunity-project.eu/dataset.html
+- MM‑Fi toolbox and data: https://github.com/ybhbingo/MMFi_dataset and https://ntu-aiot-lab.github.io/mm-fi
+
+This repository includes a small scaffold to help integrate Opportunity: see `scripts/download_opportunity.py` and `dataloaders/opportunity_pytorch_dataset.py`.
+
+Future work
+-----------
+
+- Integrate MM‑Fi toolbox and provide an MM‑Fi dataloader/wrapper (large dataset; planned).
 
 Quick commands
 --------------
 
-Install recommended helpers and run the downloader:
+Install recommended helpers and run the Opportunity downloader:
 
 ```
 python -m pip install --upgrade pip
-pip install requests tqdm gdown
-python scripts/download_datasets.py
+pip install requests tqdm
+python scripts/download_opportunity.py --out dataset/Opportunity
 ```
 
 Notes
@@ -50,26 +63,42 @@ Steps (PowerShell):
 powershell -ExecutionPolicy Bypass -File scripts/setup_venv.ps1 -EnvName .venv
 ```
 
-After creating the venv, install a GPU-capable PyTorch wheel per the official instructions at https://pytorch.org/ (example for CUDA 11.8 shown by the script).
-
-Using the CASAS PyTorch dataloader
----------------------------------
-
-A minimal `torch.utils.data.Dataset` implementation for CASAS CSV files is included at `dataloaders/casas_pytorch_dataset.py`. It expects extracted CSV files under `dataset/CASAS/`.
-
-Example usage after activating the venv:
+Activate the venv before running commands:
 
 ```
-python -c "from dataloaders.casas_pytorch_dataset import CASASSequenceDataset; ds=CASASSequenceDataset('dataset/CASAS', seq_len=128); print(len(ds))"
+# PowerShell
+. .venv\Scripts\Activate.ps1
+
+# CMD
+.venv\Scripts\activate.bat
+```
+
+Install base requirements and (optionally) a GPU-capable PyTorch wheel. Replace the PyTorch install command with the CUDA version that matches your system; example for CUDA 13.2:
+
+```
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+pip install --index-url https://download.pytorch.org/whl/cu132 torch torchvision -U
+```
+
+Using the Opportunity Dataset loader
+-----------------------------------
+
+A minimal `torch.utils.data.Dataset` implementation for Opportunity CSV files is included at `dataloaders/opportunity_pytorch_dataset.py`. It expects extracted CSV files under `dataset/Opportunity/`.
+
+Example usage after activating the venv (point to the extracted CSV folder):
+
+```
+python -c "from dataloaders.opportunity_pytorch_dataset import OpportunityDataset; ds=OpportunityDataset('dataset/Opportunity', seq_len=128); print(len(ds))"
 ```
 
 Run DataLoader example
 ----------------------
 
-After the venv is activated, run the example script to fetch one batch (uses GPU if available):
+After the venv is activated, run the example script to fetch one batch for Opportunity (uses GPU if available):
 
 ```
-python scripts/run_dataloader_example.py --root dataset/CASAS/data/data --seq_len 128 --batch_size 8
+python -c "from dataloaders.opportunity_pytorch_dataset import OpportunityDataset; ds=OpportunityDataset('dataset/Opportunity', seq_len=128); print(len(ds))"
 ```
 
 
