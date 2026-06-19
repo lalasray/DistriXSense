@@ -42,6 +42,12 @@ python scripts\run_opportunity_sanity_one.py
 
 ## Train VQ-VAE
 
+Architecture sketch and suggested next changes:
+
+```text
+docs\vqvae_architecture.md
+```
+
 Full CUDA run:
 
 ```powershell

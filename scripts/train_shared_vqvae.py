@@ -26,6 +26,20 @@ def parse_modality_str(s: str):
     return d
 
 
+def mean_metric(out: dict, modalities: dict, key: str):
+    values = []
+    for m in modalities:
+        metric = out.get(m, {}).get(key)
+        if metric is None:
+            continue
+        if torch.is_tensor(metric):
+            metric = float(metric.detach())
+        values.append(float(metric))
+    if not values:
+        return None
+    return sum(values) / len(values)
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('--root', default='dataset/Opportunity/extracted/OpportunityUCIDataset/dataset')
@@ -96,7 +110,7 @@ def main():
     if device.type == 'cuda':
         print(f'CUDA device: {torch.cuda.get_device_name(0)}')
         print(f'AMP: {amp_enabled}')
-    print(f'Dataset windows: {len(ds)} / {len(full_ds)} ({args.data_fraction:.0%})')
+    print(f'Dataset windows: {len(ds)} / {len(full_ds)} ({args.data_fraction:.1%})')
 
     model = MultiModalSharedVQVAE(modality_dims=modalities, modality_codebook_sizes=codebook, hidden=64, latent_dim=32).to(device)
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)
@@ -139,7 +153,20 @@ def main():
             scaler.update()
             epoch_loss += float(total_loss.detach())
             step += 1
-            progress.set_postfix(loss=f'{float(total_loss.detach()):.4f}', step=step)
+            recon_loss = mean_metric(out, modalities, 'recon_loss')
+            codebook_loss = mean_metric(out, modalities, 'codebook_loss')
+            commitment_loss = mean_metric(out, modalities, 'commitment_loss')
+            perplexity = mean_metric(out, modalities, 'perplexity')
+            postfix = {'loss': f'{float(total_loss.detach()):.4f}', 'step': step}
+            if recon_loss is not None:
+                postfix['recon'] = f'{recon_loss:.4f}'
+            if codebook_loss is not None:
+                postfix['codebook'] = f'{codebook_loss:.4f}'
+            if commitment_loss is not None:
+                postfix['commit'] = f'{commitment_loss:.4f}'
+            if perplexity is not None:
+                postfix['ppl'] = f'{perplexity:.2f}'
+            progress.set_postfix(postfix)
             # periodic codebook usage
             if step % 100 == 0:
                 for m in modalities:

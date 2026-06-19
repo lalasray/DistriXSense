@@ -55,7 +55,7 @@ class VectorQuantizer(nn.Module):
         self.beta = beta
         self.embeddings = nn.Parameter(torch.randn(num_embeddings, embedding_dim))
 
-    def forward(self, z_e: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def forward(self, z_e: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, Dict[str, torch.Tensor]]:
         # z_e: (B, T, D)
         B, T, D = z_e.shape
         flat = z_e.reshape(-1, D)  # (B*T, D)
@@ -69,7 +69,8 @@ class VectorQuantizer(nn.Module):
         loss = codebook + self.beta * commitment
         # straight-through estimator
         z_q_st = z_e + (z_q - z_e).detach()
-        return z_q_st, loss, idx.view(B, T)
+        losses = {'vq_loss': loss, 'codebook_loss': codebook, 'commitment_loss': commitment}
+        return z_q_st, loss, idx.view(B, T), losses
 
 
 class SharedVectorQuantizer(nn.Module):
@@ -92,7 +93,7 @@ class SharedVectorQuantizer(nn.Module):
         self.total_embeddings = total
         self.embeddings = nn.Parameter(torch.randn(self.total_embeddings, embedding_dim))
 
-    def quantize(self, z_e: torch.Tensor, modality: str) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def quantize(self, z_e: torch.Tensor, modality: str) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, dict]:
         """Quantize `z_e` (B, T, D) using the codebook slice for `modality`.
 
         Returns (z_q_st, loss, indices_global)
@@ -119,7 +120,14 @@ class SharedVectorQuantizer(nn.Module):
         probs = counts / counts.sum().clamp(min=1.0)
         # perplexity = exp(-sum(p log p))
         perplexity = float(torch.exp(-torch.sum(probs * torch.log(probs + 1e-10))))
-        return z_q_st, loss, idx_global.view(B, T), {'perplexity': perplexity, 'counts': counts}
+        stats = {
+            'perplexity': perplexity,
+            'counts': counts,
+            'vq_loss': loss,
+            'codebook_loss': codebook,
+            'commitment_loss': commitment,
+        }
+        return z_q_st, loss, idx_global.view(B, T), stats
 
     def init_embeddings_kmeans(self, modality: str, samples: torch.Tensor, n_iter: int = 20, seed: int = 0):
         """Initialize the modality's codebook slice using k-means on `samples`.
@@ -319,11 +327,19 @@ class VQVAE(nn.Module):
     def forward(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
         # x: (B, T, C)
         z_e = self.encoder(x)  # (B, T', D)
-        z_q, qloss, idx = self.quantizer(z_e)
+        z_q, qloss, idx, qstats = self.quantizer(z_e)
         recon = self.decoder(z_q, target_len=x.size(1))
         recon_loss = F.mse_loss(recon, x)
         loss = recon_loss + qloss
-        return {'recon': recon, 'loss': loss, 'recon_loss': recon_loss, 'vq_loss': qloss, 'indices': idx}
+        return {
+            'recon': recon,
+            'loss': loss,
+            'recon_loss': recon_loss,
+            'vq_loss': qloss,
+            'codebook_loss': qstats['codebook_loss'],
+            'commitment_loss': qstats['commitment_loss'],
+            'indices': idx,
+        }
 
 
 class MultiModalVQVAE(nn.Module):
@@ -384,6 +400,8 @@ class MultiModalSharedVQVAE(nn.Module):
                 'loss': loss,
                 'recon_loss': recon_loss,
                 'vq_loss': qloss,
+                'codebook_loss': stats.get('codebook_loss') if isinstance(stats, dict) else None,
+                'commitment_loss': stats.get('commitment_loss') if isinstance(stats, dict) else None,
                 'indices': idx,
                 'perplexity': stats.get('perplexity') if isinstance(stats, dict) else None,
                 'counts': stats.get('counts') if isinstance(stats, dict) else None,
