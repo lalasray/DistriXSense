@@ -3,3 +3,5 @@
 /dataset/Opportunity
 /dataloaders/__pycache__
 *.log
+/Code/vqvae/__pycache__
+/scripts/__pycache__

@@ -102,7 +102,8 @@ def infer_group_map_from_first_file(root: str = 'dataset/Opportunity', label_col
 class OpportunityDataset(Dataset):
     def __init__(self, root: str = 'dataset/Opportunity', seq_len: int = 128, step: int = 64,
                  files: Optional[List[str]] = None, label_col: Optional[int] = None,
-                 normalize: bool = False, group_map: Optional[dict] = None, window_ms: Optional[float] = None):
+                 normalize: bool = False, group_map: Optional[dict] = None, window_ms: Optional[float] = None,
+                 resample_on_drift: bool = False, resample_cv_threshold: float = 0.02, resample_outlier_factor: float = 2.0):
         self.root = Path(root)
         self.seq_len = int(seq_len)
         self.step = int(step)
@@ -112,6 +113,10 @@ class OpportunityDataset(Dataset):
         # if None, each column becomes its own sensor stream named s0, s1, ...
         self.group_map = group_map
         self.window_ms = float(window_ms) if window_ms is not None else None
+        # resampling options: if True, check per-window timing and interpolate when irregular
+        self.resample_on_drift = bool(resample_on_drift)
+        self.resample_cv_threshold = float(resample_cv_threshold)
+        self.resample_outlier_factor = float(resample_outlier_factor)
 
         if files is None:
             self.files = sorted([p for p in self.root.iterdir() if p.is_file() and p.suffix.lower() in ('.dat', '.csv')])
@@ -214,9 +219,76 @@ class OpportunityDataset(Dataset):
             data = arr
         return data, labels
 
+    def _maybe_resample_window(self, data: np.ndarray) -> np.ndarray:
+        """Check MILLISEC regularity in `data` and linearly interpolate to regular grid if needed.
+
+        Assumes MILLISEC is the first column. Returns possibly-modified data of same shape.
+        """
+        if not self.resample_on_drift or data.size == 0 or data.shape[1] == 0:
+            return data
+        # need at least two samples to compute dt
+        if data.shape[0] < 2:
+            return data
+        times = data[:, 0].astype(np.float64)
+        # if times are all zeros or identical, skip
+        if np.all(times == times[0]):
+            return data
+        dt = np.diff(times)
+        # ignore non-positive diffs when computing stats, but mark as irregular if any
+        positive = dt[dt > 0]
+        if positive.size == 0:
+            return data
+        mean = float(positive.mean())
+        std = float(positive.std())
+        cv = std / mean if mean != 0 else float('inf')
+        outliers = int(np.sum((positive > self.resample_outlier_factor * np.median(positive)) | (positive < 0.5 * np.median(positive))))
+        need = (cv > self.resample_cv_threshold) or (outliers > 0) or np.any(dt <= 0)
+        if not need:
+            return data
+
+        # perform linear interpolation onto regular grid based on median dt
+        median_dt = float(np.median(positive))
+        L = data.shape[0]
+        target_times = np.arange(L) * median_dt + times[0]
+        # Prepare output array
+        out = np.empty_like(data, dtype=np.float32)
+        out[:, 0] = target_times.astype(np.float32)
+        # interpolate each other column
+        for c in range(1, data.shape[1]):
+            col = data[:, c]
+            # mask NaNs
+            x = times
+            y = col
+            # For interpolation, need increasing x; if duplicates exist, use first occurrence
+            # Use numpy.interp which requires increasing x
+            # Build unique x indices
+            try:
+                # remove NaNs in y for interpolation
+                valid = ~np.isnan(y)
+                if np.sum(valid) < 2:
+                    out[:, c] = np.nan_to_num(y, nan=0.0).astype(np.float32)
+                    continue
+                x_valid = x[valid]
+                y_valid = y[valid]
+                # ensure strictly increasing x_valid
+                # if not, perturb slightly
+                if np.any(np.diff(x_valid) <= 0):
+                    x_valid = np.cumsum(np.maximum(1e-3, np.diff(np.concatenate(([0.0], x_valid))))) + x_valid[0]
+                yi = np.interp(target_times, x_valid, y_valid).astype(np.float32)
+                out[:, c] = yi
+            except Exception:
+                out[:, c] = np.nan_to_num(col, nan=0.0).astype(np.float32)
+        return out
+
     def __getitem__(self, idx):
         f, start, n_cols = self.seqs[idx]
         data, labels = self._read_window(f, start, self.seq_len)
+        # optionally resample this window if timing is irregular
+        if self.resample_on_drift and data.size:
+            try:
+                data = self._maybe_resample_window(data)
+            except Exception:
+                pass
         # optional per-window normalization
         if self.normalize and data.size > 0:
             mean = data.mean(axis=0, keepdims=True)
