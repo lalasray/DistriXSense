@@ -4,17 +4,34 @@ import numpy as np
 from dataloaders.opportunity_pytorch_dataset import OpportunityDataset
 
 
-def pretty(arr, maxrows=5):
-    if arr is None:
+def describe_tensor(t):
+    if t is None:
         return 'None'
-    a = np.array(arr)
-    if a.size == 0:
-        return 'empty'
-    if a.ndim == 1:
-        return np.array2string(a[:maxrows], precision=4, separator=', ')
-    # 2D
-    rows = min(a.shape[0], maxrows)
-    return '\n' + '\n'.join([np.array2string(r, precision=4, separator=', ') for r in a[:rows]])
+    if hasattr(t, 'numpy'):
+        a = t.numpy()
+    else:
+        a = np.array(t)
+    shape = a.shape
+    dtype = str(a.dtype)
+    total = a.size
+    try:
+        n_nan = int(np.isnan(a).sum()) if np.issubdtype(a.dtype, np.floating) else 0
+    except Exception:
+        n_nan = 0
+    # compute min/max ignoring NaN for numeric
+    try:
+        if np.issubdtype(a.dtype, np.number):
+            valid = a[~np.isnan(a)] if a.size and np.issubdtype(a.dtype, np.floating) else a
+            if valid.size:
+                vmin = float(np.min(valid))
+                vmax = float(np.max(valid))
+            else:
+                vmin = vmax = None
+        else:
+            vmin = vmax = None
+    except Exception:
+        vmin = vmax = None
+    return dict(shape=shape, dtype=dtype, total=total, n_nan=n_nan, min=vmin, max=vmax)
 
 
 def main():
@@ -43,17 +60,17 @@ def main():
     for k in ('file','start','length'):
         print(' ', k, ':', item.get(k))
 
-    print('\nRaw sequence shape:', None if item['sequence'] is None else item['sequence'].shape)
-    print('Raw sequence (first rows):', pretty(item['sequence'][:5].numpy() if hasattr(item['sequence'],'numpy') else item['sequence'][:5]))
+    seq = item.get('sequence')
+    seq_desc = describe_tensor(seq)
+    print('\nSequence:')
+    print(' ', 'shape:', seq_desc['shape'], 'dtype:', seq_desc['dtype'], 'total:', seq_desc['total'], 'n_nan:', seq_desc['n_nan'])
 
-    print('\nLabels (per-timestep, up to 20):')
-    # labels are not returned per timestep when label_col given; dataset stores label in 'label' and per-timestep list only internally
-    print(' label (window majority):', item.get('label'))
+    print('\nLabel (window majority):', item.get('label'))
 
-    print('\nStreams:')
+    print('\nStreams summary:')
     for g, t in item['streams'].items():
-        print(' -', g, 'shape', t.shape)
-        print('   first rows:', pretty(t[:5].numpy() if hasattr(t,'numpy') else t[:5]))
+        desc = describe_tensor(t)
+        print(f" - {g}: shape={desc['shape']}, dtype={desc['dtype']}, total={desc['total']}, n_nan={desc['n_nan']}, min={desc['min']}, max={desc['max']}")
 
     print('\nDone')
 
