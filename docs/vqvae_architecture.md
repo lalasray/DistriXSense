@@ -23,7 +23,7 @@ flowchart LR
     end
 
     subgraph Quantizer["Shared partitioned codebook"]
-        L["Optional label conditioner<br/>activity label embedding + sensor embedding"]
+        L["Optional label conditioner<br/>sensor embedding always<br/>activity labels train-only"]
         CA["acc slice<br/>128 codes"]
         CQ["quat slice<br/>128 codes"]
         CR["reed slice<br/>64 codes"]
@@ -67,10 +67,9 @@ flowchart LR
 - Optional temporal augmentation can randomly drop frames. A learnable temporal
   interpolator first linearly resamples the remaining frames to the configured
   input length, then applies a small learnable convolutional refinement.
-- Optional label-aware quantization embeds an activity label and a sensor id,
-  adds that context to the encoder latent before codebook lookup, and can add a
-  small CLIP-style contrastive loss between pooled sensor latents and activity
-  label embeddings.
+- Optional label-aware training uses a sensor embedding during quantization and
+  a training-only CLIP-style loss between pooled sensor latents and activity
+  label embeddings. Inference does not require activity labels.
 
 ## Suggested Changes
 
@@ -100,9 +99,10 @@ flowchart LR
 
 6. Tune label conditioning carefully.
 
-   Label conditioning can help make codes activity-aware, but a large contrastive
-   weight can overpower reconstruction. Start around `0.01` to `0.05` and watch
-   reconstruction loss and perplexity together.
+   Label-aware training can help make codes activity-aware without requiring
+   labels at inference, but a large contrastive weight can overpower
+   reconstruction. Start around `0.01` to `0.05` and watch reconstruction loss
+   and perplexity together.
 
 ## Good Next Experiment
 
