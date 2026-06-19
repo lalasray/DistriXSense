@@ -102,7 +102,7 @@ def infer_group_map_from_first_file(root: str = 'dataset/Opportunity', label_col
 class OpportunityDataset(Dataset):
     def __init__(self, root: str = 'dataset/Opportunity', seq_len: int = 128, step: int = 64,
                  files: Optional[List[str]] = None, label_col: Optional[int] = None,
-                 normalize: bool = False, group_map: Optional[dict] = None):
+                 normalize: bool = False, group_map: Optional[dict] = None, window_ms: Optional[float] = None):
         self.root = Path(root)
         self.seq_len = int(seq_len)
         self.step = int(step)
@@ -111,6 +111,7 @@ class OpportunityDataset(Dataset):
         # group_map: optional dict mapping group_name -> list of column indices (0-based, after removing label_col)
         # if None, each column becomes its own sensor stream named s0, s1, ...
         self.group_map = group_map
+        self.window_ms = float(window_ms) if window_ms is not None else None
 
         if files is None:
             self.files = sorted([p for p in self.root.iterdir() if p.is_file() and p.suffix.lower() in ('.dat', '.csv')])
@@ -120,6 +121,38 @@ class OpportunityDataset(Dataset):
         # seq index entries: (file_path, start_row, n_features)
         self.seqs: List[Tuple[Path, int, int]] = []
         self._file_meta = {}  # path -> dict with n_rows, n_cols
+        # if user requested time-based windowing, compute seq_len from first file's MILLISEC column
+        if self.window_ms is not None and len(self.files) > 0:
+            # try to compute sampling rate (samples per second) from first file
+            first = self.files[0]
+            try:
+                with open(first, 'r', errors='ignore') as fh:
+                    times = []
+                    for line in fh:
+                        line=line.strip()
+                        if not line:
+                            continue
+                        parts = line.split()
+                        try:
+                            t = float(parts[0])
+                            times.append(t)
+                        except Exception:
+                            continue
+                        if len(times) >= 50:
+                            break
+                if len(times) >= 2:
+                    diffs = [t2 - t1 for t1, t2 in zip(times[:-1], times[1:]) if t2 > t1]
+                    if len(diffs) > 0:
+                        # median delta in milliseconds
+                        import statistics
+                        median_dt = statistics.median(diffs)
+                        if median_dt > 0:
+                            sampling_hz = 1000.0 / median_dt
+                            computed = max(1, int(round((self.window_ms / 1000.0) * sampling_hz)))
+                            self.seq_len = computed
+            except Exception:
+                pass
+
         self._scan_files()
 
     def _scan_files(self):
