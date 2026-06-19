@@ -38,3 +38,28 @@ Notes
 
 - MM‑Fi Google Drive is large (~77 GB). If you prefer, download it manually from the Drive web UI.
 - The MM‑Fi anonymized RGB images are hosted on Aliyun (OSS) — see the project README for that link.
+
+Python environment (Windows)
+---------------------------
+
+A PowerShell helper to create a venv and install base requirements is provided at `scripts/setup_venv.ps1`.
+
+Steps (PowerShell):
+
+```
+powershell -ExecutionPolicy Bypass -File scripts/setup_venv.ps1 -EnvName .venv
+```
+
+After creating the venv, install a GPU-capable PyTorch wheel per the official instructions at https://pytorch.org/ (example for CUDA 11.8 shown by the script).
+
+Using the CASAS PyTorch dataloader
+---------------------------------
+
+A minimal `torch.utils.data.Dataset` implementation for CASAS CSV files is included at `dataloaders/casas_pytorch_dataset.py`. It expects extracted CSV files under `dataset/CASAS/`.
+
+Example usage after activating the venv:
+
+```
+python -c "from dataloaders.casas_pytorch_dataset import CASASSequenceDataset; ds=CASASSequenceDataset('dataset/CASAS', seq_len=128); print(len(ds))"
+```
+

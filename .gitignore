@@ -1,1 +1,5 @@
 *.zip
+/.venv
+/dataset/CASAS/data
+/dataset/CASAS/floorplans
+/dataset/CASAS/labeled_data
