@@ -1,131 +1,435 @@
 # Shared Multimodal VQ-VAE Architecture
 
-Current implementation: `Code/vqvae/models.py`
+Current implementation:
 
-```mermaid
-flowchart LR
-    subgraph Inputs["Opportunity sensor windows"]
-        A["BACK_IMU_acc<br/>(B, T, 3)"]
-        Q["BACK_IMU_quat<br/>(B, T, 4)"]
-        R["REED_DISHWASHER_S3<br/>(B, T, 1)"]
-    end
+- Model: `Code/vqvae/models.py`
+- Trainer: `scripts/train_shared_vqvae.py`
+- Main mixed runner: `scripts/run_vqvae_cuda_10pct.ps1`
+- Transform-head runner: `scripts/run_vqvae_cuda_10pct_transform.ps1`
+- Activity auxiliary-loss runner: `scripts/run_vqvae_cuda_10pct_imu_label.ps1`
 
-    subgraph Prep["Training preprocessing"]
-        N["Dataset normalization<br/>nan_to_num + saved channel z-score"]
-        D["Optional frame-drop augmentation"]
-        I["Optional learnable temporal interpolator<br/>variable length -> fixed T"]
-    end
+## Big Picture
 
-    subgraph Encoders["Separate 1D encoders"]
-        EA["Conv1d -> ReLU -> stride-2 Conv1d -> optional residuals -> 1x1 Conv"]
-        EQ["Conv1d -> ReLU -> stride-2 Conv1d -> optional residuals -> 1x1 Conv"]
-        ER["Conv1d -> ReLU -> stride-2 Conv1d -> optional residuals -> 1x1 Conv"]
-    end
+The core model is a multimodal VQ-VAE. Each sensor stream has its own encoder and
+raw decoder, but all streams share one codebook tensor split into modality-specific
+slices.
 
-    subgraph Quantizer["Shared partitioned codebook"]
-        CA["acc slice<br/>128 codes"]
-        CQ["quat slice<br/>128 codes"]
-        CR["reed slice<br/>64 codes"]
-    end
-
-    subgraph Decoders["Separate 1D decoders"]
-        DA["1x1 Conv -> residual block -> ConvTranspose1d -> Conv1d"]
-        DQ["1x1 Conv -> residual block -> ConvTranspose1d -> Conv1d"]
-        DR["1x1 Conv -> residual block -> ConvTranspose1d -> Conv1d"]
-    end
-
-    subgraph Loss["Loss"]
-        LA["MSE reconstruction"]
-        LQ["VQ codebook + commitment"]
-        LC["Optional train-only<br/>activity contrastive loss"]
-        LF["Optional transform decoder losses<br/>STFT + Haar wavelet + reed transitions"]
-        LT["total_loss = sum modality losses"]
-    end
-
-    A --> N
-    Q --> N
-    R --> N
-    N --> D --> I
-    I --> EA --> CA --> DA --> LA
-    I --> EQ --> CQ --> DQ --> LA
-    I --> ER --> CR --> DR --> LA
-    EA --> LC
-    EQ --> LC
-    ER --> LC
-    CA --> LQ
-    CQ --> LQ
-    CR --> LQ
-    LA --> LT
-    LQ --> LT
-    LC --> LT
-    LF --> LT
-```
-
-## What The Current Model Does
-
-- Each modality has its own encoder and decoder.
-- The quantizer is shared as one tensor, but each modality only uses its own fixed slice.
-- The encoder downsamples time by 2 using a strided convolution.
-- The decoder upsamples time using `ConvTranspose1d`.
-- Decoder residual blocks are enabled by default (`--decoder_res_blocks 1`).
-- Encoder residual blocks are off by default (`--encoder_res_blocks 0`) to keep
-  sensor-to-code inference fast. Enable them only if quality needs it.
-- Training computes mean/std once over the selected training windows, saves them
-  as `norm_stats.json` in the checkpoint directory, and reuses them for later
-  training/evaluation/inference runs.
-- Optional temporal augmentation can randomly drop frames. A learnable temporal
-  interpolator first linearly resamples the remaining frames to the configured
-  input length, then applies a small learnable convolutional refinement.
-- Optional label-aware training uses a training-only CLIP-style loss between
-  pooled sensor latents and activity label embeddings. Labels do not enter the
-  encoder, quantizer, decoder, or reconstruction path.
-- Optional transform decoder heads predict transform-domain features directly
-  from the quantized latent. Their predictions are compared against transforms
-  computed from the target raw signal: STFT magnitude for frequency content,
-  Haar wavelet coefficients for multiscale shape, and first differences for
-  sparse reed/contact transitions.
-
-## Suggested Changes
-
-1. Remove or replace mostly constant streams.
-
-   `REED_DISHWASHER_S1` was effectively inactive in sampled windows.
-   `REED_DISHWASHER_S3` is a slightly more active replacement, but reed/contact
-   streams are still sparse. Train IMU-only first if codebook collapse returns.
-
-2. Add residual encoder/decoder blocks.
-
-   The current encoder/decoder is very shallow. A VQ-VAE usually benefits from small residual blocks around the latent projection:
-
-   ```text
-   Conv -> ReLU -> Conv -> residual add
-   ```
-
-3. Track reconstruction loss and VQ loss separately in tqdm.
-
-   Right now the progress bar shows only total loss. Showing `recon_loss`, `vq_loss`, and perplexity makes collapse obvious earlier.
-
-4. Consider EMA codebook updates.
-
-   `models.py` already contains EMA quantizer classes, but `MultiModalSharedVQVAE` uses the non-EMA quantizer. EMA updates are often more stable for VQ-VAE training.
-
-5. Add validation reconstruction plots.
-
-   Save a small plot every epoch comparing input vs reconstruction for each modality. This is more useful than only watching loss.
-
-6. Tune label conditioning carefully.
-
-   Label-aware training can help make codes activity-aware without requiring
-   labels at inference, but a large contrastive weight can overpower
-   reconstruction. Start around `0.01` to `0.05` and watch reconstruction loss
-   and perplexity together.
-
-## Good Next Experiment
-
-Train only the active IMU streams first:
+The main inference path is:
 
 ```text
-BACK_IMU_acc:3,BACK_IMU_quat:4,RUA_IMU_acc:3,RUA_IMU_quat:4
+sensor window -> normalization -> encoder -> vector quantizer -> raw decoder
 ```
 
-Then add sparse reed/contact sensors after the reconstruction pipeline is stable.
+Training can add extra auxiliary losses, but labels and transform heads are not
+required for basic inference.
+
+## Full Wiring
+
+```mermaid
+flowchart TD
+    subgraph Raw["Raw batch from OpportunityDataset"]
+        A0["BACK_IMU_acc<br/>(B, T, 3)"]
+        Q0["BACK_IMU_quat<br/>(B, T, 4)"]
+        R0["REED_DISHWASHER_S3<br/>(B, T, 1)"]
+        Y0["Optional label stream<br/>label_HL_Activity<br/>(B, T, 1)"]
+    end
+
+    subgraph Norm["Input normalization"]
+        S["nan_to_num<br/>NaN/+Inf/-Inf -> 0"]
+        Z["Saved dataset z-score<br/>(x - mean) / std<br/>from norm_stats.json"]
+    end
+
+    subgraph Aug["Optional temporal robustness"]
+        FD["Random frame drop<br/>training only"]
+        LI["Learnable temporal interpolator<br/>variable T -> fixed T"]
+    end
+
+    subgraph Enc["Per-modality encoders"]
+        EA["acc encoder<br/>Conv1d -> ReLU -> stride-2 Conv1d<br/>-> optional residuals -> 1x1 Conv<br/>z_e_acc: (B, T/2, D)"]
+        EQ["quat encoder<br/>Conv1d -> ReLU -> stride-2 Conv1d<br/>-> optional residuals -> 1x1 Conv<br/>z_e_quat: (B, T/2, D)"]
+        ER["reed encoder<br/>Conv1d -> ReLU -> stride-2 Conv1d<br/>-> optional residuals -> 1x1 Conv<br/>z_e_reed: (B, T/2, D)"]
+    end
+
+    subgraph VQ["Shared partitioned vector quantizer"]
+        CB["One shared codebook tensor"]
+        CBA["BACK_IMU_acc slice<br/>e.g. 128 codes"]
+        CBQ["BACK_IMU_quat slice<br/>e.g. 128 codes"]
+        CBR["REED_DISHWASHER_S3 slice<br/>e.g. 64 codes"]
+        ZA["z_q_acc + indices + perplexity"]
+        ZQ["z_q_quat + indices + perplexity"]
+        ZR["z_q_reed + indices + perplexity"]
+    end
+
+    subgraph RawDec["Per-modality raw decoders"]
+        DA["acc raw decoder<br/>1x1 Conv -> residual block<br/>-> ConvTranspose1d -> Conv1d"]
+        DQ["quat raw decoder<br/>1x1 Conv -> residual block<br/>-> ConvTranspose1d -> Conv1d"]
+        DR["reed raw decoder<br/>1x1 Conv -> residual block<br/>-> ConvTranspose1d -> Conv1d"]
+        RA["recon_acc<br/>(B, T, 3)"]
+        RQ["recon_quat<br/>(B, T, 4)"]
+        RR["recon_reed<br/>(B, T, 1)"]
+    end
+
+    subgraph AuxDec["Optional transform decoder heads"]
+        SA["STFT head from z_q<br/>predicts STFT magnitude features"]
+        WA["Wavelet head from z_q<br/>predicts Haar features"]
+        TD["Reed transition head from z_q<br/>predicts first-difference features"]
+    end
+
+    subgraph TargetXform["Computed targets from raw normalized input"]
+        ST["STFT(raw target)"]
+        WT["Haar wavelet(raw target)"]
+        DT["Delta(raw reed target)"]
+    end
+
+    subgraph LabelAux["Optional activity auxiliary path<br/>training only"]
+        YM["majority label per window"]
+        LP["pooled encoder latent<br/>mean over time"]
+        CL["contrastive loss<br/>latent projection vs label embedding"]
+    end
+
+    subgraph Losses["Losses"]
+        LR["raw reconstruction MSE"]
+        LV["VQ loss<br/>standard: codebook + beta * commitment<br/>EMA: beta * commitment"]
+        LX["transform-head losses<br/>STFT / wavelet / reed transition"]
+        LT["total_loss<br/>sum over modalities and enabled losses"]
+    end
+
+    A0 --> S
+    Q0 --> S
+    R0 --> S
+    S --> Z
+    Z --> FD
+    FD --> LI
+
+    LI --> EA
+    LI --> EQ
+    LI --> ER
+
+    EA --> CBA
+    EQ --> CBQ
+    ER --> CBR
+    CB --> CBA
+    CB --> CBQ
+    CB --> CBR
+    CBA --> ZA
+    CBQ --> ZQ
+    CBR --> ZR
+
+    ZA --> DA --> RA --> LR
+    ZQ --> DQ --> RQ --> LR
+    ZR --> DR --> RR --> LR
+
+    ZA --> SA
+    ZQ --> SA
+    ZA --> WA
+    ZQ --> WA
+    ZR --> TD
+    Z --> ST
+    Z --> WT
+    Z --> DT
+    SA --> LX
+    WA --> LX
+    TD --> LX
+    ST --> LX
+    WT --> LX
+    DT --> LX
+
+    Y0 --> YM
+    EA --> LP
+    EQ --> LP
+    ER --> LP
+    YM --> CL
+    LP --> CL
+
+    ZA --> LV
+    ZQ --> LV
+    ZR --> LV
+    LR --> LT
+    LV --> LT
+    LX --> LT
+    CL --> LT
+```
+
+## Main Inference Path
+
+For sensor-to-code inference, the important path is:
+
+```text
+normalized sensor stream
+  -> Encoder1D
+  -> SharedVectorQuantizer or SharedEMAVectorQuantizer
+  -> indices / z_q
+```
+
+For reconstruction inference, continue through:
+
+```text
+z_q -> Decoder1D -> reconstructed sensor stream
+```
+
+No activity labels are needed at inference.
+
+## Per-Modality Flow
+
+For each modality `m`:
+
+```text
+x_m: (B, T, C_m)
+  -> nan_to_num
+  -> dataset z-score using norm_stats.json
+  -> optional frame drop during training
+  -> optional temporal interpolator back to T
+  -> Encoder1D
+  -> z_e_m: (B, T/2, latent_dim)
+  -> quantizer slice for modality m
+  -> z_q_m, code indices, perplexity
+  -> raw Decoder1D
+  -> recon_m: (B, T, C_m)
+```
+
+Raw reconstruction loss:
+
+```text
+MSE(recon_m, normalized_target_m)
+```
+
+VQ loss:
+
+```text
+standard quantizer:
+  codebook_loss + beta * commitment_loss
+
+EMA quantizer:
+  beta * commitment_loss
+  codebook updated through EMA buffers
+```
+
+## Shared Partitioned Codebook
+
+The codebook is one tensor, but each modality uses a fixed contiguous slice.
+
+Example:
+
+```text
+BACK_IMU_acc       -> codes 0..127
+BACK_IMU_quat      -> codes 128..255
+REED_DISHWASHER_S3 -> codes 256..319
+```
+
+Perplexity is computed per modality slice. If perplexity is near `1.0`, that
+modality is mostly using one code.
+
+## Optional Transform Decoder Heads
+
+These heads are training-only auxiliary decoders from `z_q`. They do not replace
+the raw decoder.
+
+For IMU-like streams:
+
+```text
+z_q -> STFT head -> predicted STFT magnitude features
+raw target -> torch.stft -> target STFT magnitude features
+loss = L1(predicted, target)
+```
+
+```text
+z_q -> wavelet head -> predicted Haar features
+raw target -> Haar transform -> target Haar features
+loss = L1(predicted, target)
+```
+
+For reed/contact streams:
+
+```text
+z_q -> transition head -> predicted first-difference features
+raw target -> x[t] - x[t-1] -> target transition features
+loss = SmoothL1(predicted, target)
+```
+
+The intent is to force the quantized latent to preserve information useful for
+frequency content, multiscale shape, and sparse contact transitions.
+
+## Optional Activity Auxiliary Loss
+
+Activity labels are only used during training.
+
+```text
+encoder latent z_e
+  -> mean over time
+  -> projection
+  -> contrastive loss against activity label embedding
+```
+
+Labels do not enter:
+
+- encoder input
+- quantizer lookup
+- raw decoder
+- transform decoder heads
+- inference path
+
+This keeps inference label-free.
+
+## Config Defaults
+
+Important defaults in `scripts/train_shared_vqvae.py`:
+
+```text
+seq_len = 32
+latent_dim = 32
+hidden = 64
+encoder_res_blocks = 0
+decoder_res_blocks = 1
+normalize_batch = false
+dataset normalization = enabled
+quantizer = standard
+stft_loss_weight = 0
+wavelet_loss_weight = 0
+reed_transition_loss_weight = 0
+activity_contrastive_loss = false
+```
+
+Dataset normalization:
+
+```text
+checkpoint_dir/norm_stats.json
+```
+
+is computed once over the selected training windows and reused.
+
+## Common Runners
+
+Mixed IMU + reed baseline:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\run_vqvae_cuda_10pct.ps1 -Epochs 10 -Batch 32
+```
+
+IMU-only EMA baseline:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\run_vqvae_cuda_10pct_imu_ema.ps1 -Epochs 10 -Batch 32
+```
+
+Activity auxiliary-loss run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\run_vqvae_cuda_10pct_imu_label.ps1 -Epochs 10 -Batch 32
+```
+
+Transform decoder-head run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\run_vqvae_cuda_10pct_transform.ps1 -Epochs 10 -Batch 32
+```
+
+## Current Practical Notes
+
+- `REED_DISHWASHER_S1` was effectively inactive in sampled windows.
+- `REED_DISHWASHER_S3` is slightly more active, but reed/contact streams are
+  still sparse.
+- If codebook collapse returns, first compare against the IMU-only EMA runner.
+- Encoder residual blocks are off by default to keep sensor-to-code inference
+  fast.
+- Decoder residual blocks are on by default because they help reconstruction and
+  are irrelevant if inference only consumes discrete codes.
+
+## Change Status
+
+Done:
+
+- Dataset-level normalization stats.
+  - `norm_stats.json` is computed once per checkpoint directory.
+  - Later runs reuse the saved stats.
+  - Per-batch normalization is no longer the default.
+
+- TQDM progress and loss visibility.
+  - Progress bar shows total loss, reconstruction loss, codebook loss,
+    commitment loss, perplexity, and enabled auxiliary losses.
+
+- Separate codebook and commitment loss reporting.
+  - `codebook_loss` and `commitment_loss` are returned separately.
+  - `vq_loss` remains the combined VQ term.
+
+- NaN protection and training stabilizers.
+  - Input `nan_to_num`.
+  - Lower default learning rate.
+  - Gradient clipping.
+  - Training stops before saving a checkpoint if loss becomes non-finite.
+
+- Codebook initialization improvement.
+  - Codebooks now use small uniform initialization instead of broad normal
+    initialization.
+
+- EMA quantizer option.
+  - Use `--quantizer ema`.
+  - IMU-only EMA runner exists:
+    `scripts/run_vqvae_cuda_10pct_imu_ema.ps1`.
+
+- More active reed stream in mixed runners.
+  - Mixed runners now use `REED_DISHWASHER_S3` instead of
+    `REED_DISHWASHER_S1`.
+
+- Optional temporal robustness.
+  - Random frame drop.
+  - Learnable temporal interpolator back to fixed input length.
+  - Runner:
+    `scripts/run_vqvae_cuda_10pct_interp.ps1`.
+
+- Training-only activity auxiliary loss.
+  - Uses labels only for contrastive loss after the encoder.
+  - Labels do not enter encoder, quantizer, decoder, transform heads, or
+    inference.
+  - Runner:
+    `scripts/run_vqvae_cuda_10pct_imu_label.ps1`.
+
+- Decoder residual blocks.
+  - `--decoder_res_blocks 1` by default.
+  - `--encoder_res_blocks 0` by default to keep code extraction fast.
+
+- Optional transform decoder heads.
+  - STFT feature decoder for IMU-like streams.
+  - Haar wavelet feature decoder for IMU-like streams.
+  - Transition feature decoder for reed/contact streams.
+  - Runner:
+    `scripts/run_vqvae_cuda_10pct_transform.ps1`.
+
+Partially Done:
+
+- Handling sparse reed/contact streams.
+  - We switched to a slightly more active reed stream.
+  - The reed streams are still sparse overall.
+  - IMU-only training is still the cleanest baseline for debugging collapse.
+
+- Activity-aware representation learning.
+  - The auxiliary contrastive loss is implemented.
+  - It still needs tuning: start with `LabelContrastiveWeight` around `0.01`
+    to `0.05` and watch reconstruction/perplexity together.
+
+Still Worth Doing:
+
+- Validation loop.
+  - Add a held-out validation subset.
+  - Track train vs validation reconstruction loss and perplexity.
+
+- Reconstruction plots.
+  - Save input vs reconstruction plots per epoch for each modality.
+  - This is the fastest way to see whether lower loss actually means useful
+    reconstruction.
+
+- Dataset split control.
+  - Current `--data_fraction` samples a deterministic subset.
+  - Add explicit train/val/test split files for repeatable experiments.
+
+- K-means codebook initialization.
+  - If perplexity collapses again, initialize each codebook slice from encoder
+    outputs instead of random init.
+
+- Inference/export helper.
+  - Add a script that loads a checkpoint plus `norm_stats.json` and emits
+    codes/latents for new sensor windows without labels.
+
+- Better reed/contact objective.
+  - Current transition head predicts first differences.
+  - For truly binary contact streams, a BCE-style event head may be better than
+    pure regression once labels/events are cleaned.
