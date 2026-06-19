@@ -7,7 +7,7 @@ flowchart LR
     subgraph Inputs["Opportunity sensor windows"]
         A["BACK_IMU_acc<br/>(B, T, 3)"]
         Q["BACK_IMU_quat<br/>(B, T, 4)"]
-        R["REED_DISHWASHER_S1<br/>(B, T, 1)"]
+        R["REED_DISHWASHER_S3<br/>(B, T, 1)"]
     end
 
     subgraph Prep["Training preprocessing"]
@@ -79,7 +79,9 @@ flowchart LR
 
 1. Remove or replace mostly constant streams.
 
-   `REED_DISHWASHER_S1` was all zeros in sampled windows. That can train, but it does not teach the model much and can encourage codebook collapse. Use a more active binary stream or train IMU-only first.
+   `REED_DISHWASHER_S1` was effectively inactive in sampled windows.
+   `REED_DISHWASHER_S3` is a slightly more active replacement, but reed/contact
+   streams are still sparse. Train IMU-only first if codebook collapse returns.
 
 2. Add residual encoder/decoder blocks.
 
