@@ -180,6 +180,7 @@ def main():
     p.add_argument('--wavelet_loss_weight', type=float, default=0.05)
     p.add_argument('--reed_transition_loss_weight', type=float, default=0.20)
     p.add_argument('--learnable_loss_weights', action=argparse.BooleanOptionalAction, default=True)
+    p.add_argument('--modality_loss_reduction', choices=('mean', 'sum'), default='mean')
     args = p.parse_args()
     use_activity_contrastive_loss = bool(args.activity_contrastive_loss)
     if args.no_ema:
@@ -275,6 +276,7 @@ def main():
         wavelet_loss_weight=args.wavelet_loss_weight,
         reed_transition_loss_weight=args.reed_transition_loss_weight,
         learnable_loss_weights=args.learnable_loss_weights,
+        modality_loss_reduction=args.modality_loss_reduction,
     ).to(device)
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)
     scaler = torch.amp.GradScaler('cuda', enabled=amp_enabled)
@@ -295,6 +297,7 @@ def main():
         'lr',
         'beta',
         'quantizer',
+        'modality_loss_reduction',
         'w_recon',
         'w_vq',
         'w_label',
@@ -441,6 +444,7 @@ def main():
                 'lr': args.lr,
                 'beta': args.beta,
                 'quantizer': args.quantizer,
+                'modality_loss_reduction': args.modality_loss_reduction,
                 'w_recon': (model.loss_weighter.current_weights().get('recon') if args.learnable_loss_weights else None),
                 'w_vq': (model.loss_weighter.current_weights().get('vq') if args.learnable_loss_weights else None),
                 'w_label': (model.loss_weighter.current_weights().get('label') if args.learnable_loss_weights else None),

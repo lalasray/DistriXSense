@@ -574,7 +574,8 @@ class MultiModalSharedVQVAE(nn.Module):
                  encoder_res_blocks: int = 0, decoder_res_blocks: int = 1,
                  stft_loss_weight: float = 0.0, wavelet_loss_weight: float = 0.0,
                  reed_transition_loss_weight: float = 0.0,
-                 learnable_loss_weights: bool = False):
+                 learnable_loss_weights: bool = False,
+                 modality_loss_reduction: str = 'mean'):
         super().__init__()
         self.input_len = input_len
         self.use_temporal_interpolator = bool(use_temporal_interpolator)
@@ -585,6 +586,9 @@ class MultiModalSharedVQVAE(nn.Module):
         self.wavelet_loss_weight = float(wavelet_loss_weight)
         self.reed_transition_loss_weight = float(reed_transition_loss_weight)
         self.learnable_loss_weights_enabled = bool(learnable_loss_weights)
+        if modality_loss_reduction not in ('mean', 'sum'):
+            raise ValueError("modality_loss_reduction must be 'mean' or 'sum'")
+        self.modality_loss_reduction = modality_loss_reduction
         self.loss_weighter = None
         if self.learnable_loss_weights_enabled:
             self.loss_weighter = LearnableLossWeights([
@@ -647,6 +651,7 @@ class MultiModalSharedVQVAE(nn.Module):
                 targets: Dict[str, torch.Tensor] = None, labels: torch.Tensor = None) -> Dict[str, Dict]:
         out = {}
         total_loss = 0.0
+        active_modalities = 0
         for name, x in inputs.items():
             if name not in self.encoders:
                 raise KeyError(f"Unknown modality {name}")
@@ -700,6 +705,7 @@ class MultiModalSharedVQVAE(nn.Module):
                 else:
                     loss = loss + self.label_contrastive_weight * label_contrastive_loss
             total_loss = total_loss + loss
+            active_modalities += 1
             out[name] = {
                 'recon': recon,
                 'loss': loss,
@@ -715,6 +721,8 @@ class MultiModalSharedVQVAE(nn.Module):
                 'perplexity': stats.get('perplexity') if isinstance(stats, dict) else None,
                 'counts': stats.get('counts') if isinstance(stats, dict) else None,
             }
+        if self.modality_loss_reduction == 'mean':
+            total_loss = total_loss / max(1, active_modalities)
         out['total_loss'] = total_loss
         if self.learnable_loss_weights_enabled:
             out['loss_weights'] = self.loss_weighter.current_weights()
