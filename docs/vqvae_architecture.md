@@ -329,10 +329,12 @@ wandb login
 powershell -ExecutionPolicy Bypass -File scripts\run_vqvae_cuda_full_scale.ps1 -Epochs 10 -Batch 16 -DataFraction 1.0 -Wandb -WandbRunName "vqvae-full-scale"
 ```
 
-W&B receives the full run config, aggregate train/epoch losses, per-modality
-losses, perplexity, gradient norm, and applied alpha values. Checkpoint uploads
-are off by default; add `-WandbLogArtifacts` only when you want `.pt` files
-stored online.
+W&B receives the full run config, codebook slices, aggregate train/epoch losses,
+per-modality losses including `vq_loss`, per-modality applied alpha values,
+perplexity, and gradient norm. Useful paths include
+`modality/BACK_IMU_acc/vq_loss`, `modality/BACK_IMU_acc/alpha/vq`, and their
+epoch-averaged `modality_epoch/...` equivalents. Checkpoint uploads are off by
+default; add `-WandbLogArtifacts` only when you want `.pt` files stored online.
 
 Disable defaults for ablations:
 

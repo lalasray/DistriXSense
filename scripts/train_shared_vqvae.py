@@ -49,6 +49,19 @@ def metric_to_float(metric):
     return float(metric)
 
 
+def codebook_slice_config(codebook: dict):
+    offset = 0
+    slices = {}
+    for name, size in codebook.items():
+        slices[name] = {
+            'start': offset,
+            'end': offset + int(size),
+            'size': int(size),
+        }
+        offset += int(size)
+    return slices
+
+
 def drop_random_frames(x: torch.Tensor, drop_prob: float, min_keep: int):
     B, T, C = x.shape
     if drop_prob <= 0:
@@ -178,6 +191,7 @@ def init_wandb(args, modalities: dict, codebook: dict, dataset_windows: int, ful
     config.update({
         'modalities': modalities,
         'codebook': codebook,
+        'codebook_slices': codebook_slice_config(codebook),
         'num_modalities': len(modalities),
         'dataset_windows': dataset_windows,
         'full_dataset_windows': full_dataset_windows,
@@ -332,6 +346,7 @@ def main():
         print(f'AMP: {amp_enabled}')
     print(f'Dataset windows: {len(ds)} / {len(full_ds)} ({args.data_fraction:.1%})')
 
+    codebook_slices = codebook_slice_config(codebook)
     wandb_run = init_wandb(
         args=args,
         modalities=modalities,
@@ -341,6 +356,13 @@ def main():
         device=device,
         amp_enabled=amp_enabled,
     )
+    if wandb_run is not None:
+        slice_payload = {}
+        for modality_name, slice_info in codebook_slices.items():
+            slice_payload[f'codebook/{modality_name}/start'] = slice_info['start']
+            slice_payload[f'codebook/{modality_name}/end'] = slice_info['end']
+            slice_payload[f'codebook/{modality_name}/size'] = slice_info['size']
+        wandb_log(wandb_run, slice_payload, step=0)
 
     norm_stats = None
     if not args.no_dataset_norm and not args.normalize_batch:
@@ -388,6 +410,7 @@ def main():
         'epoch',
         'avg_total_loss',
         'avg_recon_loss',
+        'avg_vq_loss',
         'avg_codebook_loss',
         'avg_commitment_loss',
         'avg_label_contrastive_loss',
@@ -423,6 +446,7 @@ def main():
         epoch_loss = 0.0
         epoch_metrics = {
             'recon_loss': [],
+            'vq_loss': [],
             'codebook_loss': [],
             'commitment_loss': [],
             'label_contrastive_loss': [],
@@ -438,6 +462,27 @@ def main():
             'stft': [],
             'wavelet': [],
             'reed_transition': [],
+        }
+        epoch_modality_metrics = {
+            m: {
+                'loss': [],
+                'recon_loss': [],
+                'vq_loss': [],
+                'codebook_loss': [],
+                'commitment_loss': [],
+                'label_contrastive_loss': [],
+                'stft_loss': [],
+                'wavelet_loss': [],
+                'reed_transition_loss': [],
+                'perplexity': [],
+                'alpha_recon': [],
+                'alpha_vq': [],
+                'alpha_label': [],
+                'alpha_stft': [],
+                'alpha_wavelet': [],
+                'alpha_reed_transition': [],
+            }
+            for m in modalities
         }
         progress = tqdm(dl, desc=f'Epoch {epoch}/{args.epochs}', unit='batch')
         for i, batch in enumerate(progress):
@@ -483,6 +528,7 @@ def main():
             epoch_loss += float(total_loss.detach())
             step += 1
             recon_loss = mean_metric(out, modalities, 'recon_loss')
+            vq_loss = mean_metric(out, modalities, 'vq_loss')
             codebook_loss = mean_metric(out, modalities, 'codebook_loss')
             commitment_loss = mean_metric(out, modalities, 'commitment_loss')
             label_contrastive_loss = mean_metric(out, modalities, 'label_contrastive_loss')
@@ -517,10 +563,36 @@ def main():
                     if key in loss_weights:
                         epoch_loss_weights[key].append(float(loss_weights[key]))
             progress.set_postfix(postfix)
+            for m in modalities:
+                if m not in out:
+                    continue
+                modality_out = out[m]
+                modality_loss = metric_to_float(modality_out.get('loss'))
+                if modality_loss is not None:
+                    epoch_modality_metrics[m]['loss'].append(modality_loss)
+                for metric_name in [
+                    'recon_loss',
+                    'vq_loss',
+                    'codebook_loss',
+                    'commitment_loss',
+                    'label_contrastive_loss',
+                    'stft_loss',
+                    'wavelet_loss',
+                    'reed_transition_loss',
+                    'perplexity',
+                ]:
+                    value = metric_to_float(modality_out.get(metric_name))
+                    if value is not None:
+                        epoch_modality_metrics[m][metric_name].append(value)
+                for alpha_name, alpha_value in modality_out.get('loss_weights', {}).items():
+                    metric_key = f'alpha_{alpha_name}'
+                    if metric_key in epoch_modality_metrics[m]:
+                        epoch_modality_metrics[m][metric_key].append(float(alpha_value))
             if wandb_run is not None and args.wandb_log_interval > 0 and step % args.wandb_log_interval == 0:
                 log_payload = {
                     'train/step_loss': float(total_loss.detach()),
                     'train/recon_loss': recon_loss,
+                    'train/vq_loss': vq_loss,
                     'train/codebook_loss': codebook_loss if args.quantizer != 'ema' else None,
                     'train/commitment_loss': commitment_loss,
                     'train/label_contrastive_loss': label_contrastive_loss,
@@ -539,8 +611,11 @@ def main():
                 for m in modalities:
                     if m not in out:
                         continue
+                    modality_out = out[m]
+                    log_payload[f'modality/{m}/loss'] = metric_to_float(modality_out.get('loss'))
                     for metric_name in [
                         'recon_loss',
+                        'vq_loss',
                         'codebook_loss',
                         'commitment_loss',
                         'label_contrastive_loss',
@@ -549,12 +624,15 @@ def main():
                         'reed_transition_loss',
                         'perplexity',
                     ]:
-                        value = metric_to_float(out[m].get(metric_name))
+                        value = metric_to_float(modality_out.get(metric_name))
                         if value is not None:
                             log_payload[f'modality/{m}/{metric_name}'] = value
+                    for alpha_name, alpha_value in modality_out.get('loss_weights', {}).items():
+                        log_payload[f'modality/{m}/alpha/{alpha_name}'] = alpha_value
                 wandb_log(wandb_run, log_payload, step=step)
             for key, value in [
                 ('recon_loss', recon_loss),
+                ('vq_loss', vq_loss),
                 ('codebook_loss', codebook_loss),
                 ('commitment_loss', commitment_loss),
                 ('label_contrastive_loss', label_contrastive_loss),
@@ -581,6 +659,13 @@ def main():
             key: (sum(values) / len(values) if values else None)
             for key, values in epoch_loss_weights.items()
         }
+        avg_modality_metrics = {
+            modality_name: {
+                metric_name: (sum(values) / len(values) if values else None)
+                for metric_name, values in metrics.items()
+            }
+            for modality_name, metrics in epoch_modality_metrics.items()
+        }
         print(
             f"Epoch {epoch} finished, avg loss {avg_total:.4f}, "
             f"recon {avg_metrics['recon_loss'] or 0:.4f}, "
@@ -594,6 +679,7 @@ def main():
                 'epoch': epoch,
                 'avg_total_loss': avg_total,
                 'avg_recon_loss': avg_metrics['recon_loss'],
+                'avg_vq_loss': avg_metrics['vq_loss'],
                 'avg_codebook_loss': avg_metrics['codebook_loss'] if args.quantizer != 'ema' else None,
                 'avg_commitment_loss': avg_metrics['commitment_loss'],
                 'avg_label_contrastive_loss': avg_metrics['label_contrastive_loss'],
@@ -613,29 +699,36 @@ def main():
                 'alpha_reed_transition': avg_loss_weights['reed_transition'],
             }
             writer.writerow(metrics_row)
-        wandb_log(
-            wandb_run,
-            {
-                'epoch/total_loss': avg_total,
-                'epoch/recon_loss': avg_metrics['recon_loss'],
-                'epoch/codebook_loss': avg_metrics['codebook_loss'] if args.quantizer != 'ema' else None,
-                'epoch/commitment_loss': avg_metrics['commitment_loss'],
-                'epoch/label_contrastive_loss': avg_metrics['label_contrastive_loss'],
-                'epoch/stft_loss': avg_metrics['stft_loss'],
-                'epoch/wavelet_loss': avg_metrics['wavelet_loss'],
-                'epoch/reed_transition_loss': avg_metrics['reed_transition_loss'],
-                'epoch/perplexity': avg_metrics['perplexity'],
-                'epoch/seconds': t1 - t0,
-                'epoch/index': epoch,
-                'alpha_epoch/recon': avg_loss_weights['recon'],
-                'alpha_epoch/vq': avg_loss_weights['vq'],
-                'alpha_epoch/label': avg_loss_weights['label'],
-                'alpha_epoch/stft': avg_loss_weights['stft'],
-                'alpha_epoch/wavelet': avg_loss_weights['wavelet'],
-                'alpha_epoch/reed_transition': avg_loss_weights['reed_transition'],
-            },
-            step=step,
-        )
+        epoch_payload = {
+            'epoch/total_loss': avg_total,
+            'epoch/recon_loss': avg_metrics['recon_loss'],
+            'epoch/vq_loss': avg_metrics['vq_loss'],
+            'epoch/codebook_loss': avg_metrics['codebook_loss'] if args.quantizer != 'ema' else None,
+            'epoch/commitment_loss': avg_metrics['commitment_loss'],
+            'epoch/label_contrastive_loss': avg_metrics['label_contrastive_loss'],
+            'epoch/stft_loss': avg_metrics['stft_loss'],
+            'epoch/wavelet_loss': avg_metrics['wavelet_loss'],
+            'epoch/reed_transition_loss': avg_metrics['reed_transition_loss'],
+            'epoch/perplexity': avg_metrics['perplexity'],
+            'epoch/seconds': t1 - t0,
+            'epoch/index': epoch,
+            'alpha_epoch/recon': avg_loss_weights['recon'],
+            'alpha_epoch/vq': avg_loss_weights['vq'],
+            'alpha_epoch/label': avg_loss_weights['label'],
+            'alpha_epoch/stft': avg_loss_weights['stft'],
+            'alpha_epoch/wavelet': avg_loss_weights['wavelet'],
+            'alpha_epoch/reed_transition': avg_loss_weights['reed_transition'],
+        }
+        for modality_name, modality_metrics in avg_modality_metrics.items():
+            for metric_name, metric_value in modality_metrics.items():
+                if metric_value is None:
+                    continue
+                if metric_name.startswith('alpha_'):
+                    alpha_name = metric_name.removeprefix('alpha_')
+                    epoch_payload[f'modality_epoch/{modality_name}/alpha/{alpha_name}'] = metric_value
+                else:
+                    epoch_payload[f'modality_epoch/{modality_name}/{metric_name}'] = metric_value
+        wandb_log(wandb_run, epoch_payload, step=step)
         checkpoint_path = Path(args.checkpoint_dir) / f'model_epoch{epoch}.pt'
         torch.save({'model_state': model.state_dict(), 'opt_state': opt.state_dict()}, checkpoint_path)
         print('Saved checkpoint', checkpoint_path)

@@ -98,9 +98,11 @@ wandb login
 powershell -ExecutionPolicy Bypass -File scripts\run_vqvae_cuda_full_scale.ps1 -Epochs 10 -Batch 16 -DataFraction 1.0 -Wandb -WandbRunName "vqvae-full-scale"
 ```
 
-W&B logs the run config, aggregate losses, per-modality losses, perplexity, and
-learned `alpha_*` weights. Add `-WandbLogArtifacts` only if you want checkpoints
-uploaded too.
+W&B logs the run config, codebook slices, aggregate losses, per-modality losses
+including `vq_loss`, per-modality applied alphas, perplexity, and learned
+`alpha_*` weights. Look for paths like `modality/BACK_IMU_acc/vq_loss` and
+`modality/BACK_IMU_acc/alpha/vq`. Add `-WandbLogArtifacts` only if you want
+checkpoints uploaded too.
 
 The trainer defaults to residual blocks, transform auxiliary heads, activity
 auxiliary loss, EMA quantization, and learnable loss weights. Disable pieces with flags such as

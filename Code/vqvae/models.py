@@ -720,12 +720,17 @@ class MultiModalSharedVQVAE(nn.Module):
                 for alpha_name, alpha_value in active_alphas.items():
                     alpha_totals[alpha_name] = alpha_totals.get(alpha_name, 0.0) + alpha_value.detach()
             else:
+                active_alphas = {}
                 loss = sum(loss_terms.values())
             total_loss = total_loss + loss
             active_modalities += 1
             out[name] = {
                 'recon': recon,
                 'loss': loss,
+                'loss_weights': {
+                    alpha_name: float(alpha_value.detach().cpu())
+                    for alpha_name, alpha_value in active_alphas.items()
+                },
                 'recon_loss': recon_loss,
                 'vq_loss': qloss,
                 'codebook_loss': stats.get('codebook_loss') if isinstance(stats, dict) else None,
