@@ -301,6 +301,7 @@ reed_transition_loss_weight = 0.20
 activity_contrastive_loss = true
 label_contrastive_weight = 0.02
 learnable_loss_weights = true
+modality_loss_reduction = mean
 ```
 
 Dataset normalization:
@@ -309,7 +310,9 @@ Dataset normalization:
 checkpoint_dir/norm_stats.json
 ```
 
-is computed once over the selected training windows and reused.
+is computed once over the selected training windows and reused. Standard
+deviation is floored by `--norm_std_floor` (default `1.0`) so sparse or nearly
+constant streams do not explode after normalization.
 
 Training metrics:
 
@@ -318,6 +321,18 @@ checkpoint_dir/metrics.csv
 ```
 
 is appended once per epoch with averaged loss components and perplexity.
+
+Optional online tracking:
+
+```powershell
+wandb login
+powershell -ExecutionPolicy Bypass -File scripts\run_vqvae_cuda_full_scale.ps1 -Epochs 10 -Batch 16 -DataFraction 1.0 -Wandb -WandbRunName "vqvae-full-scale"
+```
+
+W&B receives the full run config, aggregate train/epoch losses, per-modality
+losses, perplexity, gradient norm, and applied alpha values. Checkpoint uploads
+are off by default; add `-WandbLogArtifacts` only when you want `.pt` files
+stored online.
 
 Disable defaults for ablations:
 
@@ -330,12 +345,16 @@ Disable defaults for ablations:
 --no-activity_contrastive_loss
 --no-learnable_loss_weights
 --no-ema
+--modality_loss_reduction sum
 ```
 
 ## Reading Losses And Tuning Knobs
 
 Do not judge training from `total_loss` alone. The model can have reconstruction,
 VQ, activity, STFT, wavelet, and reed-transition losses active at the same time.
+Each per-modality loss is averaged over its batch/time/channel elements, and
+`total_loss` is averaged over active modalities by default. This keeps full-scale
+89-stream training on a comparable scale to small debug runs.
 
 Use `metrics.csv` and the tqdm postfix:
 
@@ -396,42 +415,56 @@ Useful first tuning order:
 6. Scale to full sensor families.
 ```
 
-## Learnable Loss Weights
+## Learnable Loss Alphas
 
-You can enable uncertainty-style learnable loss weighting:
+You can enable softmax-normalized learnable loss alphas:
 
 ```powershell
 --learnable_loss_weights
 ```
 
-This adds one learned scalar per loss family:
+This adds one learned alpha per loss family:
 
 ```text
-w_recon
-w_vq
-w_label
-w_stft
-w_wavelet
-w_reed_transition
+alpha_recon
+alpha_vq
+alpha_label
+alpha_stft
+alpha_wavelet
+alpha_reed_transition
 ```
 
-Internally each enabled component is weighted like:
+Internally, each modality first builds only the loss terms that are active for
+that modality. Then those active terms are normalized with a softmax:
 
 ```text
-exp(-log_var) * loss + log_var
+active_alpha = softmax(raw_alpha_logits[active_loss_names])
+
+modality_total = sum(active_alpha[name] * active_loss[name])
 ```
 
-Interpretation:
+For an IMU-like stream, the active set can be:
 
 ```text
-larger w_*  -> model is emphasizing that loss more
-smaller w_* -> model is down-weighting that loss
+recon, vq, label, stft, wavelet
 ```
 
-This helps when reconstruction, VQ, STFT, wavelet, reed transition, and activity
-losses live on different numeric scales. It does not remove the need to inspect
-the individual raw losses: a learnable weight can hide a bad objective by
-down-weighting it.
+For a REED/contact stream, the active set can be:
+
+```text
+recon, vq, label, reed_transition
+```
+
+Disabled or not-applicable losses do not take alpha mass. The active alphas are
+positive and sum to 1 per modality:
+
+```text
+sum(active_alpha_*) = 1
+```
+
+`metrics.csv` records the batch-applied alphas averaged across the epoch. It
+still does not remove the need to inspect raw losses: a learned alpha can move
+away from a hard objective instead of fixing it.
 
 ## Common Runners
 

@@ -169,6 +169,15 @@ def parse_args():
     p.add_argument('--adaptive_codebook', action=argparse.BooleanOptionalAction, default=True)
     p.add_argument('--complexity_max_files', type=int, default=8)
     p.add_argument('--complexity_max_rows_per_file', type=int, default=5000)
+    p.add_argument('--wandb', action='store_true')
+    p.add_argument('--wandb_project', default='DistriXSense-vqvae')
+    p.add_argument('--wandb_entity', default='')
+    p.add_argument('--wandb_run_name', default='')
+    p.add_argument('--wandb_tags', default='full-scale')
+    p.add_argument('--wandb_mode', choices=('online', 'offline', 'disabled'), default='online')
+    p.add_argument('--wandb_log_interval', type=int, default=10)
+    p.add_argument('--wandb_watch', action='store_true')
+    p.add_argument('--wandb_log_artifacts', action='store_true')
     p.add_argument('--dry_run', action='store_true')
     return p.parse_args()
 
@@ -241,6 +250,23 @@ def main():
         ])
     else:
         cmd.append('--no-activity_contrastive_loss')
+
+    if args.wandb:
+        cmd.extend([
+            '--wandb',
+            '--wandb_project', args.wandb_project,
+            '--wandb_tags', args.wandb_tags,
+            '--wandb_mode', args.wandb_mode,
+            '--wandb_log_interval', str(args.wandb_log_interval),
+        ])
+        if args.wandb_entity:
+            cmd.extend(['--wandb_entity', args.wandb_entity])
+        if args.wandb_run_name:
+            cmd.extend(['--wandb_run_name', args.wandb_run_name])
+        if args.wandb_watch:
+            cmd.append('--wandb_watch')
+        if args.wandb_log_artifacts:
+            cmd.append('--wandb_log_artifacts')
 
     if args.dry_run:
         print(' '.join(cmd))

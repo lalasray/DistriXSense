@@ -143,22 +143,32 @@ class LabelConditioner(nn.Module):
 
 
 class LearnableLossWeights(nn.Module):
-    """Uncertainty-style learnable loss weighting."""
+    """Softmax-normalized learnable loss alphas over active loss terms."""
     def __init__(self, names):
         super().__init__()
-        self.log_vars = nn.ParameterDict({
+        self.logits = nn.ParameterDict({
             name: nn.Parameter(torch.zeros(()))
             for name in names
         })
 
-    def weighted(self, name: str, loss: torch.Tensor) -> torch.Tensor:
-        log_var = self.log_vars[name]
-        return torch.exp(-log_var) * loss + log_var
+    def alphas(self, names=None):
+        names = list(names) if names is not None else list(self.logits.keys())
+        if not names:
+            return {}
+        values = torch.stack([self.logits[name] for name in names])
+        weights = torch.softmax(values, dim=0)
+        return {name: weights[i] for i, name in enumerate(names)}
 
-    def current_weights(self):
+    def weighted_sum(self, losses: Dict[str, torch.Tensor]):
+        alphas = self.alphas(losses.keys())
+        weighted = sum(alphas[name] * loss for name, loss in losses.items())
+        return weighted, alphas
+
+    def current_weights(self, names=None):
+        alphas = self.alphas(names)
         return {
-            name: float(torch.exp(-param.detach()).cpu())
-            for name, param in self.log_vars.items()
+            name: float(value.detach().cpu())
+            for name, value in alphas.items()
         }
 
 
@@ -652,6 +662,7 @@ class MultiModalSharedVQVAE(nn.Module):
         out = {}
         total_loss = 0.0
         active_modalities = 0
+        alpha_totals = {}
         for name, x in inputs.items():
             if name not in self.encoders:
                 raise KeyError(f"Unknown modality {name}")
@@ -666,10 +677,10 @@ class MultiModalSharedVQVAE(nn.Module):
             z_q, qloss, idx, stats = self.quantizer.quantize(z_e, modality=name)
             recon = self.decoders[name](z_q, target_len=target.size(1))
             recon_loss = F.mse_loss(recon, target)
-            if self.learnable_loss_weights_enabled:
-                loss = self.loss_weighter.weighted('recon', recon_loss) + self.loss_weighter.weighted('vq', qloss)
-            else:
-                loss = recon_loss + qloss
+            loss_terms = {
+                'recon': recon_loss,
+                'vq': qloss,
+            }
             stft_loss = None
             wavelet_loss = None
             reed_transition = None
@@ -679,31 +690,37 @@ class MultiModalSharedVQVAE(nn.Module):
                     target_transition = transition_features(target).detach()
                     reed_transition = F.smooth_l1_loss(pred_transition, target_transition)
                     if self.learnable_loss_weights_enabled:
-                        loss = loss + self.reed_transition_loss_weight * self.loss_weighter.weighted('reed_transition', reed_transition)
+                        loss_terms['reed_transition'] = self.reed_transition_loss_weight * reed_transition
                     else:
-                        loss = loss + self.reed_transition_loss_weight * reed_transition
+                        loss_terms['reed_transition'] = self.reed_transition_loss_weight * reed_transition
             else:
                 if self.stft_loss_weight > 0 and name in self.stft_decoders:
                     pred_stft = self.stft_decoders[name](z_q)
                     target_stft = stft_magnitude_features(target).detach()
                     stft_loss = F.l1_loss(pred_stft, target_stft)
                     if self.learnable_loss_weights_enabled:
-                        loss = loss + self.stft_loss_weight * self.loss_weighter.weighted('stft', stft_loss)
+                        loss_terms['stft'] = self.stft_loss_weight * stft_loss
                     else:
-                        loss = loss + self.stft_loss_weight * stft_loss
+                        loss_terms['stft'] = self.stft_loss_weight * stft_loss
                 if self.wavelet_loss_weight > 0 and name in self.wavelet_decoders:
                     pred_wavelet = self.wavelet_decoders[name](z_q)
                     target_wavelet = haar_wavelet_features(target).detach()
                     wavelet_loss = F.l1_loss(pred_wavelet, target_wavelet)
                     if self.learnable_loss_weights_enabled:
-                        loss = loss + self.wavelet_loss_weight * self.loss_weighter.weighted('wavelet', wavelet_loss)
+                        loss_terms['wavelet'] = self.wavelet_loss_weight * wavelet_loss
                     else:
-                        loss = loss + self.wavelet_loss_weight * wavelet_loss
+                        loss_terms['wavelet'] = self.wavelet_loss_weight * wavelet_loss
             if label_contrastive_loss is not None:
                 if self.learnable_loss_weights_enabled:
-                    loss = loss + self.label_contrastive_weight * self.loss_weighter.weighted('label', label_contrastive_loss)
+                    loss_terms['label'] = self.label_contrastive_weight * label_contrastive_loss
                 else:
-                    loss = loss + self.label_contrastive_weight * label_contrastive_loss
+                    loss_terms['label'] = self.label_contrastive_weight * label_contrastive_loss
+            if self.learnable_loss_weights_enabled:
+                loss, active_alphas = self.loss_weighter.weighted_sum(loss_terms)
+                for alpha_name, alpha_value in active_alphas.items():
+                    alpha_totals[alpha_name] = alpha_totals.get(alpha_name, 0.0) + alpha_value.detach()
+            else:
+                loss = sum(loss_terms.values())
             total_loss = total_loss + loss
             active_modalities += 1
             out[name] = {
@@ -725,5 +742,8 @@ class MultiModalSharedVQVAE(nn.Module):
             total_loss = total_loss / max(1, active_modalities)
         out['total_loss'] = total_loss
         if self.learnable_loss_weights_enabled:
-            out['loss_weights'] = self.loss_weighter.current_weights()
+            out['loss_weights'] = {
+                name: float((alpha_totals.get(name, 0.0) / max(1, active_modalities)).detach().cpu())
+                for name in self.loss_weighter.logits.keys()
+            }
         return out

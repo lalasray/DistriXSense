@@ -2,7 +2,15 @@ param(
     [int]$Epochs = 10,
     [int]$Batch = 16,
     [double]$DataFraction = 0.10,
-    [switch]$NoActivityAux
+    [switch]$NoActivityAux,
+    [switch]$Wandb,
+    [string]$WandbProject = "DistriXSense-vqvae",
+    [string]$WandbEntity = "",
+    [string]$WandbRunName = "",
+    [string]$WandbTags = "full-scale",
+    [int]$WandbLogInterval = 10,
+    [switch]$WandbWatch,
+    [switch]$WandbLogArtifacts
 )
 
 $ErrorActionPreference = "Stop"
@@ -28,6 +36,27 @@ $argsList = @(
 
 if ($NoActivityAux) {
     $argsList += "--no-activity_contrastive_loss"
+}
+
+if ($Wandb) {
+    $argsList += @(
+        "--wandb",
+        "--wandb_project", "$WandbProject",
+        "--wandb_tags", "$WandbTags",
+        "--wandb_log_interval", "$WandbLogInterval"
+    )
+    if ($WandbEntity) {
+        $argsList += @("--wandb_entity", "$WandbEntity")
+    }
+    if ($WandbRunName) {
+        $argsList += @("--wandb_run_name", "$WandbRunName")
+    }
+    if ($WandbWatch) {
+        $argsList += "--wandb_watch"
+    }
+    if ($WandbLogArtifacts) {
+        $argsList += "--wandb_log_artifacts"
+    }
 }
 
 & $python @argsList

@@ -41,6 +41,14 @@ def mean_metric(out: dict, modalities: dict, key: str):
     return sum(values) / len(values)
 
 
+def metric_to_float(metric):
+    if metric is None:
+        return None
+    if torch.is_tensor(metric):
+        return float(metric.detach())
+    return float(metric)
+
+
 def drop_random_frames(x: torch.Tensor, drop_prob: float, min_keep: int):
     B, T, C = x.shape
     if drop_prob <= 0:
@@ -81,19 +89,30 @@ def majority_labels(label_stream: torch.Tensor) -> torch.Tensor:
     return torch.stack(out)
 
 
-def compute_or_load_norm_stats(ds, modalities, collate_fn, stats_path: Path, batch_size: int, num_workers: int):
+def compute_or_load_norm_stats(ds, modalities, collate_fn, stats_path: Path, batch_size: int, num_workers: int, std_floor: float):
+    expected_modalities = list(modalities.keys())
     if stats_path.exists():
         with open(stats_path, 'r', encoding='utf-8') as fh:
             raw = json.load(fh)
-        return {
-            m: {
-                'mean': torch.tensor(raw['modalities'][m]['mean'], dtype=torch.float32),
-                'std': torch.tensor(raw['modalities'][m]['std'], dtype=torch.float32).clamp_min(1e-6),
+        saved_modalities = list(raw.get('modalities', {}).keys())
+        saved_std_floor = float(raw.get('std_floor', -1.0))
+        if saved_modalities == expected_modalities and saved_std_floor == float(std_floor):
+            return {
+                m: {
+                    'mean': torch.tensor(raw['modalities'][m]['mean'], dtype=torch.float32),
+                    'std': torch.tensor(raw['modalities'][m]['std'], dtype=torch.float32).clamp_min(std_floor),
+                }
+                for m in modalities
             }
-            for m in modalities
-        }
+        print(f'Ignoring stale normalization stats: {stats_path}')
 
     stats_path.parent.mkdir(parents=True, exist_ok=True)
+
+    tmp_path = stats_path.with_suffix('.stale.json')
+    if stats_path.exists():
+        stats_path.replace(tmp_path)
+        print(f'Moved stale normalization stats to: {tmp_path}')
+
     sums = {m: None for m in modalities}
     sq_sums = {m: None for m in modalities}
     counts = {m: 0 for m in modalities}
@@ -120,12 +139,12 @@ def compute_or_load_norm_stats(ds, modalities, collate_fn, stats_path: Path, bat
             counts[m] += flat.size(0)
 
     stats = {}
-    serializable = {'modalities': {}, 'num_windows': len(ds)}
+    serializable = {'modalities': {}, 'num_windows': len(ds), 'std_floor': float(std_floor)}
     for m in modalities:
         mean = sums[m] / max(1, counts[m])
         var = (sq_sums[m] / max(1, counts[m])) - (mean * mean)
         std = torch.sqrt(var.clamp_min(1e-12))
-        stats[m] = {'mean': mean.float(), 'std': std.float().clamp_min(1e-6)}
+        stats[m] = {'mean': mean.float(), 'std': std.float().clamp_min(std_floor)}
         serializable['modalities'][m] = {
             'mean': stats[m]['mean'].tolist(),
             'std': stats[m]['std'].tolist(),
@@ -137,10 +156,68 @@ def compute_or_load_norm_stats(ds, modalities, collate_fn, stats_path: Path, bat
     return stats
 
 
-def normalize_with_stats(x: torch.Tensor, stats: dict, modality: str) -> torch.Tensor:
+def normalize_with_stats(x: torch.Tensor, stats: dict, modality: str, std_floor: float) -> torch.Tensor:
     mean = stats[modality]['mean'].view(1, 1, -1)
-    std = stats[modality]['std'].view(1, 1, -1).clamp_min(1e-6)
+    std = stats[modality]['std'].view(1, 1, -1).clamp_min(std_floor)
     return (x - mean) / std
+
+
+def init_wandb(args, modalities: dict, codebook: dict, dataset_windows: int, full_dataset_windows: int, device: torch.device, amp_enabled: bool):
+    if not args.wandb:
+        return None
+    try:
+        import wandb
+    except ImportError as exc:
+        raise RuntimeError(
+            'Weights & Biases logging was requested with --wandb, but wandb is not installed. '
+            'Install it with: pip install wandb'
+        ) from exc
+
+    tags = [tag.strip() for tag in args.wandb_tags.split(',') if tag.strip()]
+    config = vars(args).copy()
+    config.update({
+        'modalities': modalities,
+        'codebook': codebook,
+        'num_modalities': len(modalities),
+        'dataset_windows': dataset_windows,
+        'full_dataset_windows': full_dataset_windows,
+        'device_resolved': str(device),
+        'cuda_device': torch.cuda.get_device_name(0) if device.type == 'cuda' else None,
+        'amp_enabled': amp_enabled,
+    })
+    run = wandb.init(
+        project=args.wandb_project,
+        entity=args.wandb_entity or None,
+        name=args.wandb_run_name or None,
+        tags=tags or None,
+        config=config,
+        dir=args.wandb_dir or None,
+        mode=args.wandb_mode,
+    )
+    return run
+
+
+def wandb_log(run, payload: dict, step: int = None):
+    if run is None:
+        return
+    clean = {key: value for key, value in payload.items() if value is not None}
+    run.log(clean, step=step)
+
+
+def wandb_log_artifact(run, artifact_path: Path, artifact_type: str, aliases=None):
+    if run is None or not artifact_path.exists():
+        return
+    import wandb
+    artifact = wandb.Artifact(artifact_path.stem, type=artifact_type)
+    artifact.add_file(str(artifact_path))
+    run.log_artifact(artifact, aliases=aliases)
+
+
+def wandb_watch_model(run, model, log_interval: int):
+    if run is None:
+        return
+    import wandb
+    wandb.watch(model, log='gradients', log_freq=max(1, log_interval))
 
 
 def main():
@@ -164,6 +241,7 @@ def main():
     p.add_argument('--data_fraction', type=float, default=1.0, help='Fraction of dataset windows to train on, in (0, 1].')
     p.add_argument('--normalize_batch', action=argparse.BooleanOptionalAction, default=False)
     p.add_argument('--norm_stats', default=None, help='Path to dataset normalization stats JSON. Computed if missing.')
+    p.add_argument('--norm_std_floor', type=float, default=1.0, help='Minimum std used for dataset normalization.')
     p.add_argument('--no_dataset_norm', action='store_true')
     p.add_argument('--grad_clip', type=float, default=1.0)
     p.add_argument('--use_temporal_interpolator', action='store_true')
@@ -181,6 +259,16 @@ def main():
     p.add_argument('--reed_transition_loss_weight', type=float, default=0.20)
     p.add_argument('--learnable_loss_weights', action=argparse.BooleanOptionalAction, default=True)
     p.add_argument('--modality_loss_reduction', choices=('mean', 'sum'), default='mean')
+    p.add_argument('--wandb', action='store_true', help='Log training config, losses, alphas, and optional artifacts to Weights & Biases.')
+    p.add_argument('--wandb_project', default='DistriXSense-vqvae')
+    p.add_argument('--wandb_entity', default='')
+    p.add_argument('--wandb_run_name', default='')
+    p.add_argument('--wandb_tags', default='')
+    p.add_argument('--wandb_mode', choices=('online', 'offline', 'disabled'), default='online')
+    p.add_argument('--wandb_dir', default='')
+    p.add_argument('--wandb_log_interval', type=int, default=10, help='Log batch metrics to W&B every N optimizer steps.')
+    p.add_argument('--wandb_watch', action='store_true', help='Ask W&B to watch model gradients/parameters.')
+    p.add_argument('--wandb_log_artifacts', action='store_true', help='Upload metrics.csv and checkpoints as W&B artifacts.')
     args = p.parse_args()
     use_activity_contrastive_loss = bool(args.activity_contrastive_loss)
     if args.no_ema:
@@ -244,6 +332,16 @@ def main():
         print(f'AMP: {amp_enabled}')
     print(f'Dataset windows: {len(ds)} / {len(full_ds)} ({args.data_fraction:.1%})')
 
+    wandb_run = init_wandb(
+        args=args,
+        modalities=modalities,
+        codebook=codebook,
+        dataset_windows=len(ds),
+        full_dataset_windows=len(full_ds),
+        device=device,
+        amp_enabled=amp_enabled,
+    )
+
     norm_stats = None
     if not args.no_dataset_norm and not args.normalize_batch:
         stats_path = Path(args.norm_stats) if args.norm_stats else Path(args.checkpoint_dir) / 'norm_stats.json'
@@ -254,6 +352,7 @@ def main():
             stats_path=stats_path,
             batch_size=args.batch,
             num_workers=args.num_workers,
+            std_floor=args.norm_std_floor,
         )
         print(f'Normalization stats: {stats_path}')
 
@@ -278,6 +377,8 @@ def main():
         learnable_loss_weights=args.learnable_loss_weights,
         modality_loss_reduction=args.modality_loss_reduction,
     ).to(device)
+    if wandb_run is not None and args.wandb_watch:
+        wandb_watch_model(wandb_run, model, args.wandb_log_interval)
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)
     scaler = torch.amp.GradScaler('cuda', enabled=amp_enabled)
 
@@ -298,13 +399,20 @@ def main():
         'beta',
         'quantizer',
         'modality_loss_reduction',
-        'w_recon',
-        'w_vq',
-        'w_label',
-        'w_stft',
-        'w_wavelet',
-        'w_reed_transition',
+        'alpha_recon',
+        'alpha_vq',
+        'alpha_label',
+        'alpha_stft',
+        'alpha_wavelet',
+        'alpha_reed_transition',
     ]
+    if metrics_path.exists():
+        with open(metrics_path, 'r', encoding='utf-8') as fh:
+            first_line = fh.readline().strip()
+        if first_line.split(',') != metric_fields:
+            stale_metrics_path = metrics_path.with_suffix('.stale.csv')
+            metrics_path.replace(stale_metrics_path)
+            print(f'Moved stale metrics to: {stale_metrics_path}')
     if not metrics_path.exists():
         with open(metrics_path, 'w', newline='', encoding='utf-8') as fh:
             csv.DictWriter(fh, fieldnames=metric_fields).writeheader()
@@ -322,6 +430,14 @@ def main():
             'wavelet_loss': [],
             'reed_transition_loss': [],
             'perplexity': [],
+        }
+        epoch_loss_weights = {
+            'recon': [],
+            'vq': [],
+            'label': [],
+            'stft': [],
+            'wavelet': [],
+            'reed_transition': [],
         }
         progress = tqdm(dl, desc=f'Epoch {epoch}/{args.epochs}', unit='batch')
         for i, batch in enumerate(progress):
@@ -342,7 +458,7 @@ def main():
                     std = x.std(dim=(0, 1), keepdim=True).clamp_min(1e-6)
                     x = (x - mean) / std
                 elif norm_stats is not None:
-                    x = normalize_with_stats(x, norm_stats, m)
+                    x = normalize_with_stats(x, norm_stats, m, args.norm_std_floor)
                 target = x.to(device, non_blocking=(device.type == 'cuda'))
                 x_input, lengths = drop_random_frames(x, args.frame_drop_prob, args.min_keep_frames)
                 x_input = x_input.to(device, non_blocking=(device.type == 'cuda'))
@@ -358,9 +474,10 @@ def main():
             if not torch.isfinite(total_loss):
                 raise RuntimeError(f'Non-finite loss at epoch {epoch}, batch {i}, step {step + 1}. Stopping before saving a bad checkpoint.')
             scaler.scale(total_loss).backward()
+            grad_norm = None
             if args.grad_clip > 0:
                 scaler.unscale_(opt)
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.grad_clip)
+                grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.grad_clip)
             scaler.step(opt)
             scaler.update()
             epoch_loss += float(total_loss.detach())
@@ -394,9 +511,48 @@ def main():
                 postfix['ppl'] = f'{perplexity:.2f}'
             loss_weights = out.get('loss_weights')
             if loss_weights:
-                postfix['w_recon'] = f"{loss_weights.get('recon', 0):.2f}"
-                postfix['w_vq'] = f"{loss_weights.get('vq', 0):.2f}"
+                postfix['a_recon'] = f"{loss_weights.get('recon', 0):.2f}"
+                postfix['a_vq'] = f"{loss_weights.get('vq', 0):.2f}"
+                for key in epoch_loss_weights:
+                    if key in loss_weights:
+                        epoch_loss_weights[key].append(float(loss_weights[key]))
             progress.set_postfix(postfix)
+            if wandb_run is not None and args.wandb_log_interval > 0 and step % args.wandb_log_interval == 0:
+                log_payload = {
+                    'train/step_loss': float(total_loss.detach()),
+                    'train/recon_loss': recon_loss,
+                    'train/codebook_loss': codebook_loss if args.quantizer != 'ema' else None,
+                    'train/commitment_loss': commitment_loss,
+                    'train/label_contrastive_loss': label_contrastive_loss,
+                    'train/stft_loss': stft_loss,
+                    'train/wavelet_loss': wavelet_loss,
+                    'train/reed_transition_loss': reed_transition_loss,
+                    'train/perplexity': perplexity,
+                    'train/grad_norm': metric_to_float(grad_norm),
+                    'train/lr': args.lr,
+                    'train/epoch': epoch,
+                    'train/batch_index': i,
+                }
+                if loss_weights:
+                    for alpha_name, alpha_value in loss_weights.items():
+                        log_payload[f'alpha/{alpha_name}'] = alpha_value
+                for m in modalities:
+                    if m not in out:
+                        continue
+                    for metric_name in [
+                        'recon_loss',
+                        'codebook_loss',
+                        'commitment_loss',
+                        'label_contrastive_loss',
+                        'stft_loss',
+                        'wavelet_loss',
+                        'reed_transition_loss',
+                        'perplexity',
+                    ]:
+                        value = metric_to_float(out[m].get(metric_name))
+                        if value is not None:
+                            log_payload[f'modality/{m}/{metric_name}'] = value
+                wandb_log(wandb_run, log_payload, step=step)
             for key, value in [
                 ('recon_loss', recon_loss),
                 ('codebook_loss', codebook_loss),
@@ -421,6 +577,10 @@ def main():
             key: (sum(values) / len(values) if values else None)
             for key, values in epoch_metrics.items()
         }
+        avg_loss_weights = {
+            key: (sum(values) / len(values) if values else None)
+            for key, values in epoch_loss_weights.items()
+        }
         print(
             f"Epoch {epoch} finished, avg loss {avg_total:.4f}, "
             f"recon {avg_metrics['recon_loss'] or 0:.4f}, "
@@ -430,7 +590,7 @@ def main():
         )
         with open(metrics_path, 'a', newline='', encoding='utf-8') as fh:
             writer = csv.DictWriter(fh, fieldnames=metric_fields)
-            writer.writerow({
+            metrics_row = {
                 'epoch': epoch,
                 'avg_total_loss': avg_total,
                 'avg_recon_loss': avg_metrics['recon_loss'],
@@ -445,16 +605,47 @@ def main():
                 'beta': args.beta,
                 'quantizer': args.quantizer,
                 'modality_loss_reduction': args.modality_loss_reduction,
-                'w_recon': (model.loss_weighter.current_weights().get('recon') if args.learnable_loss_weights else None),
-                'w_vq': (model.loss_weighter.current_weights().get('vq') if args.learnable_loss_weights else None),
-                'w_label': (model.loss_weighter.current_weights().get('label') if args.learnable_loss_weights else None),
-                'w_stft': (model.loss_weighter.current_weights().get('stft') if args.learnable_loss_weights else None),
-                'w_wavelet': (model.loss_weighter.current_weights().get('wavelet') if args.learnable_loss_weights else None),
-                'w_reed_transition': (model.loss_weighter.current_weights().get('reed_transition') if args.learnable_loss_weights else None),
-            })
-        torch.save({'model_state': model.state_dict(), 'opt_state': opt.state_dict()}, os.path.join(args.checkpoint_dir, f'model_epoch{epoch}.pt'))
-        print('Saved checkpoint', os.path.join(args.checkpoint_dir, f'model_epoch{epoch}.pt'))
+                'alpha_recon': avg_loss_weights['recon'],
+                'alpha_vq': avg_loss_weights['vq'],
+                'alpha_label': avg_loss_weights['label'],
+                'alpha_stft': avg_loss_weights['stft'],
+                'alpha_wavelet': avg_loss_weights['wavelet'],
+                'alpha_reed_transition': avg_loss_weights['reed_transition'],
+            }
+            writer.writerow(metrics_row)
+        wandb_log(
+            wandb_run,
+            {
+                'epoch/total_loss': avg_total,
+                'epoch/recon_loss': avg_metrics['recon_loss'],
+                'epoch/codebook_loss': avg_metrics['codebook_loss'] if args.quantizer != 'ema' else None,
+                'epoch/commitment_loss': avg_metrics['commitment_loss'],
+                'epoch/label_contrastive_loss': avg_metrics['label_contrastive_loss'],
+                'epoch/stft_loss': avg_metrics['stft_loss'],
+                'epoch/wavelet_loss': avg_metrics['wavelet_loss'],
+                'epoch/reed_transition_loss': avg_metrics['reed_transition_loss'],
+                'epoch/perplexity': avg_metrics['perplexity'],
+                'epoch/seconds': t1 - t0,
+                'epoch/index': epoch,
+                'alpha_epoch/recon': avg_loss_weights['recon'],
+                'alpha_epoch/vq': avg_loss_weights['vq'],
+                'alpha_epoch/label': avg_loss_weights['label'],
+                'alpha_epoch/stft': avg_loss_weights['stft'],
+                'alpha_epoch/wavelet': avg_loss_weights['wavelet'],
+                'alpha_epoch/reed_transition': avg_loss_weights['reed_transition'],
+            },
+            step=step,
+        )
+        checkpoint_path = Path(args.checkpoint_dir) / f'model_epoch{epoch}.pt'
+        torch.save({'model_state': model.state_dict(), 'opt_state': opt.state_dict()}, checkpoint_path)
+        print('Saved checkpoint', checkpoint_path)
         print('Saved metrics', metrics_path)
+        if args.wandb_log_artifacts:
+            wandb_log_artifact(wandb_run, checkpoint_path, artifact_type='model', aliases=[f'epoch-{epoch}', 'latest'])
+            wandb_log_artifact(wandb_run, metrics_path, artifact_type='metrics', aliases=['latest'])
+
+    if wandb_run is not None:
+        wandb_run.finish()
 
 
 if __name__ == '__main__':

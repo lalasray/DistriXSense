@@ -91,6 +91,17 @@ and quaternion groups:
 powershell -ExecutionPolicy Bypass -File scripts\run_vqvae_cuda_full_scale.ps1 -Epochs 10 -Batch 16
 ```
 
+Full-scale run with Weights & Biases online tracking:
+
+```powershell
+wandb login
+powershell -ExecutionPolicy Bypass -File scripts\run_vqvae_cuda_full_scale.ps1 -Epochs 10 -Batch 16 -DataFraction 1.0 -Wandb -WandbRunName "vqvae-full-scale"
+```
+
+W&B logs the run config, aggregate losses, per-modality losses, perplexity, and
+learned `alpha_*` weights. Add `-WandbLogArtifacts` only if you want checkpoints
+uploaded too.
+
 The trainer defaults to residual blocks, transform auxiliary heads, activity
 auxiliary loss, EMA quantization, and learnable loss weights. Disable pieces with flags such as
 `--no-activity_contrastive_loss`, `--no-learnable_loss_weights`, or by setting
