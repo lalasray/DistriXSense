@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "distrixsense"
+version = "0.2.0"
+description = "Distributed sensor tokens and controlled multimodal sensing benchmarks"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.24", "torch>=2.2"]
+
+[project.optional-dependencies]
+language = ["transformers>=4.45,<5", "accelerate>=0.34"]
+legacy = ["torchvision", "pyyaml", "tqdm", "requests", "wandb"]
+
+[project.scripts]
+distrixsense = "distrixsense.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["distrixsense*"]

@@ -7,3 +7,7 @@
 /scripts/__pycache__
 /checkpoints
 /wandb
+__pycache__/
+*.egg-info/
+/runs/
+/dataset/prepared/

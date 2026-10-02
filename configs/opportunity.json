@@ -1,0 +1,17 @@
+{
+  "modalities": {"body_worn": 145, "objects": 60, "ambient": 37},
+  "classes": 18,
+  "method": "distrixsense",
+  "resample_length": 96,
+  "tokens": 8,
+  "hidden": 64,
+  "bank_size": 128,
+  "heads": 4,
+  "layers": 2,
+  "epochs": 30,
+  "pretrain_epochs": 10,
+  "batch_size": 32,
+  "patience": 7,
+  "seed": 0,
+  "device": "cpu"
+}
