@@ -11,7 +11,9 @@ dependencies = ["numpy>=1.24", "torch>=2.2"]
 
 [project.optional-dependencies]
 language = ["transformers>=4.45,<5", "accelerate>=0.34"]
-legacy = ["torchvision", "pyyaml", "tqdm", "requests", "wandb"]
+media = ["pillow>=10", "av>=12", "soundfile>=0.12"]
+aria = ["projectaria-tools>=1.5"]
+pointcloud = ["open3d>=0.18"]
 
 [project.scripts]
 distrixsense = "distrixsense.cli:main"

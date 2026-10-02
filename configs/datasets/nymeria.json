@@ -1,0 +1,34 @@
+{
+  "dataset": "nymeria",
+  "window_seconds": 3.0,
+  "stride_seconds": 1.5,
+  "modalities": {
+    "imu": "signal",
+    "accelerometer": "signal",
+    "gyroscope": "signal",
+    "magnetometer": "signal",
+    "orientation": "signal",
+    "rgb": "image",
+    "slam": "image",
+    "eye_images": "image",
+    "gaze": "signal",
+    "barometer": "signal",
+    "audio": "audio",
+    "trajectory": "signal",
+    "pointcloud": "points",
+    "xsens": "pose",
+    "body_position": "pose",
+    "body_orientation": "pose",
+    "body_velocity": "pose",
+    "body_acceleration": "pose",
+    "joint_angles": "pose",
+    "foot_contacts": "signal"
+  },
+  "annotation_tracks": [
+    "activity_summarization",
+    "atomic_action",
+    "motion_narration"
+  ],
+  "source": "https://github.com/facebookresearch/nymeria_dataset/tree/nymeria_dataset_legacy",
+  "recordings_template": "nymeria.recordings.jsonl.example"
+}

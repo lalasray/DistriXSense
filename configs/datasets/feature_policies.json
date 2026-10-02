@@ -1,0 +1,17 @@
+{
+  "image": {
+    "method": "spatial_pool",
+    "grid": 8
+  },
+  "pose": {
+    "method": "flatten_pose"
+  },
+  "audio": {
+    "method": "log_spectrum",
+    "n_fft": 512,
+    "hop": 256
+  },
+  "points": {
+    "method": "point_moments"
+  }
+}

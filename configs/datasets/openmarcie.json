@@ -1,0 +1,36 @@
+{
+  "dataset": "openmarcie",
+  "window_seconds": 3.0,
+  "stride_seconds": 1.5,
+  "modalities": {
+    "imu": "signal",
+    "accelerometer": "signal",
+    "gyroscope": "signal",
+    "magnetometer": "signal",
+    "orientation": "signal",
+    "barometer": "signal",
+    "temperature": "signal",
+    "spectrometer": "signal",
+    "thermal": "image",
+    "rgb": "image",
+    "depth": "image",
+    "lidar_depth": "image",
+    "lidar_points": "points",
+    "audio": "audio",
+    "pose2d": "pose",
+    "pose3d": "pose",
+    "object_tracks": "signal",
+    "position": "signal"
+  },
+  "annotation_tracks": [
+    "activity",
+    "object",
+    "tool",
+    "concurrent_action",
+    "caption",
+    "transcript",
+    "remarks"
+  ],
+  "source": "https://arxiv.org/html/2603.02390v1",
+  "recordings_template": "openmarcie.recordings.jsonl.example"
+}

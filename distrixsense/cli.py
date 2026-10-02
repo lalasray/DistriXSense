@@ -6,6 +6,7 @@ import torch
 from .config import Config, METHODS
 from .data import ManifestDataset, collate, make_synthetic, to_device
 from .training import evaluate, load_checkpoint, loader, train
+from .datasets import DATASETS
 
 DEFAULT_METHODS = [m for m in METHODS if m != "imagebind"]
 
@@ -14,25 +15,22 @@ def main(argv=None):
     p = argparse.ArgumentParser(description="DistriXSense controlled sensor-token experiments")
     p.add_argument("--threads", type=int, default=1, help="PyTorch CPU threads, recorded by benchmarks")
     sub = p.add_subparsers(dest="command", required=True)
-    download = sub.add_parser("download-opportunity")
-    download.add_argument("--output", default="dataset/Opportunity")
-    prepare = sub.add_parser("prepare-opportunity")
-    prepare.add_argument("--root", required=True)
-    prepare.add_argument("--output", required=True)
-    prepare.add_argument("--task", choices=("gestures", "locomotion", "activity"), default="gestures")
-    prepare.add_argument("--window", type=int, default=96)
-    prepare.add_argument("--stride", type=int, default=48)
-    for name, default in (("train", ["S1", "S2"]), ("val", ["S3"]), ("test", ["S4"])):
-        prepare.add_argument(f"--{name}-people", nargs="+", default=default)
-    prepare.add_argument("--group-map")
-    prepare.add_argument("--exclude-null", action="store_true")
-    prepare.add_argument("--max-windows", type=int)
     adapter = sub.add_parser("prepare-records")
     adapter.add_argument("--records", required=True)
-    adapter.add_argument("--dataset", choices=("opportunity++", "openmarcie"), required=True)
+    adapter.add_argument("--dataset", choices=DATASETS, required=True)
     adapter.add_argument("--output", required=True)
     adapter.add_argument("--window-seconds", type=float, default=3.)
     adapter.add_argument("--stride-seconds", type=float, default=1.5)
+    adapter.add_argument("--feature-policies", help="JSON transforms keyed by stream name or kind")
+    adapter.add_argument("--target-track", default="activity")
+    adapter.add_argument("--target-policy", choices=("strict", "majority"), default="strict")
+    inspect = sub.add_parser("inspect-dataset")
+    inspect.add_argument("--records", required=True)
+    inspect.add_argument("--dataset", choices=DATASETS, required=True)
+    inspect.add_argument("--split", choices=("train", "val", "test"), default="train")
+    inspect.add_argument("--index", type=int, default=0)
+    inspect.add_argument("--window-seconds", type=float, default=3.)
+    inspect.add_argument("--stride-seconds", type=float, default=1.5)
     synthetic = sub.add_parser("synthetic")
     synthetic.add_argument("--output", required=True)
     synthetic.add_argument("--samples", type=int, default=18)
@@ -81,16 +79,20 @@ def main(argv=None):
     if args.threads < 1:
         p.error("--threads must be positive")
     torch.set_num_threads(args.threads)
-    if args.command == "download-opportunity":
-        from .prepare import download_opportunity
-        print(download_opportunity(args.output))
-    elif args.command == "prepare-opportunity":
-        from .prepare import prepare_opportunity
-        print(prepare_opportunity(args.root, args.output, args.task, args.window, args.stride,
-            args.train_people, args.val_people, args.test_people, args.group_map, args.exclude_null, args.max_windows))
-    elif args.command == "prepare-records":
+    if args.command == "prepare-records":
         from .prepare import prepare_records
-        print(prepare_records(args.records, args.output, args.dataset, args.window_seconds, args.stride_seconds))
+        policies = json.loads(Path(args.feature_policies).read_text()) if args.feature_policies else None
+        print(prepare_records(args.records, args.output, args.dataset, args.window_seconds, args.stride_seconds,
+                              policies, args.target_track, args.target_policy))
+    elif args.command == "inspect-dataset":
+        from .datasets import RecordingDataset
+        data = RecordingDataset(args.records, args.dataset, args.split, args.window_seconds, args.stride_seconds)
+        sample = data[args.index]
+        summary = {n: {"kind": s["kind"], "frames": len(s["time"]),
+                       "shape": list(s["x"].shape) if isinstance(s.get("x"), torch.Tensor) else "ragged/text",
+                       "metadata": s["metadata"]} for n, s in sample["streams"].items()}
+        print(json.dumps({"dataset": args.dataset, "windows": len(data), "declared_streams": data.modalities,
+                          "loaded_streams": summary, "annotations": sample["annotations"]}, indent=2))
     elif args.command == "synthetic":
         print(make_synthetic(args.output, args.samples))
     elif args.command == "extract-imagebind":

@@ -47,7 +47,7 @@ class ManifestDataset(Dataset):
                 x = np.asarray(arrays[name], dtype=np.float32).copy()
                 if x.ndim != 2 or x.shape[1] != channels or not len(x):
                     raise ValueError(f"Invalid {name} shape at {row['path']}")
-                t = np.asarray(arrays[f"{name}__time"], dtype=np.float32) if f"{name}__time" in arrays else np.linspace(0, 1, len(x), dtype=np.float32)
+                t = np.asarray(arrays[f"{name}__time"], dtype=np.float64) if f"{name}__time" in arrays else np.linspace(0, 1, len(x), dtype=np.float64)
                 if t.shape != (len(x),) or not np.isfinite(t).all() or (np.diff(t) <= 0).any():
                     raise ValueError("Timestamps must be finite and strictly increasing")
                 valid = np.isfinite(x).any(axis=1)
@@ -63,10 +63,11 @@ class ManifestDataset(Dataset):
                 if self.stats:
                     x = (x - np.array(self.stats[name]["mean"])) / np.array(self.stats[name]["std"])
                 streams[name] = {"x": torch.tensor(x, dtype=torch.float32),
-                                 "time": torch.tensor(t), "valid": torch.tensor(valid)}
+                                 "time": torch.tensor(t, dtype=torch.float32), "valid": torch.tensor(valid)}
         return {"streams": streams, "label": int(row["label"]),
                 "participant": str(row["participant"]), "query": row.get("query"),
-                "answer": row.get("answer"), "path": row["path"], "events": row.get("events")}
+                "answer": row.get("answer"), "path": row["path"], "events": row.get("events"),
+                "annotations": row.get("annotations", []), "dataset": row.get("dataset")}
 
 
 def fit_stats(dataset):
@@ -108,6 +109,7 @@ def collate(samples, modalities):
     return {"streams": streams, "labels": torch.tensor([s["label"] for s in samples]),
             "participants": [s["participant"] for s in samples],
             "queries": [s["query"] for s in samples], "answers": [s["answer"] for s in samples],
+            "annotations": [s.get("annotations", []) for s in samples],
             "events": [{"times": torch.tensor(s["events"]["times"], dtype=torch.float32),
                         "labels": torch.tensor(s["events"]["labels"], dtype=torch.long)} if s.get("events") else None for s in samples]}
 
