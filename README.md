@@ -74,6 +74,10 @@ Use `matrix-suite` for each sensing modality/group with multiple local LLM cores
 The [LLM comparison guide](docs/llm_matrix.md) covers matched training/evaluation,
 complete core costs and the configured 1B, 4B and 8B checkpoint choices.
 
+For downloaded pretrained cores with source-documented dummy input shapes, use
+the [synthetic cost experiment](docs/published_dummy_tests.md). It records published
+dimensions and assumptions separately and requires no dataset download.
+
 Each run writes `best.pt`, `config.json`, `norm_stats.json`, `metrics.json`,
 `predictions.jsonl`, and training history when applicable. The suite creates
 `summary.csv`, `summary.md` and `comparisons.json` with participant-level paired

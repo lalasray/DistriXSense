@@ -3,6 +3,7 @@ import copy
 import csv
 import io
 import inspect
+import hashlib
 import json
 import math
 import platform
@@ -263,7 +264,8 @@ def profile_model(model, batch, topology, iterations=20, warmup=5, cadence=1.5):
 
 
 @torch.no_grad()
-def profile_language(model, batch, spec, base, device, iterations, warmup, saved=None):
+def profile_language(model, batch, spec, base, device, iterations, warmup, saved=None,
+                     core_cache=None, shape_cache=None):
     """Optional real local LM: fixed decode length, prompt-specific costs, no downloads."""
     from .language import SensorLanguageModel
     mode = spec.get("mode", "sensor")
@@ -273,8 +275,18 @@ def profile_language(model, batch, spec, base, device, iterations, warmup, saved
         provenance = saved["provenance"]
         if Path(provenance["language_checkpoint"]).resolve() != (base/spec["checkpoint"]).resolve() or provenance["language_mode"] != mode:
             raise ValueError("Saved language adapter belongs to a different LLM core or prompt mode")
-    lm = SensorLanguageModel.from_local(base/spec["checkpoint"], model.cfg.hidden, device, mode=mode,
-                                       dtype=spec.get("dtype", "float32"), prompt_style=spec.get("prompt_style", "auto")).eval()
+    core_key = (str((base/spec["checkpoint"]).resolve()), str(device), spec.get("dtype", "float32"))
+    if core_cache is not None and core_key in core_cache:
+        core, tokenizer = core_cache[core_key]
+        lm = SensorLanguageModel(core, tokenizer, model.cfg.hidden, mode=mode,
+                                 prompt_style=spec.get("prompt_style", "auto")).to(device).eval()
+    else:
+        if core_cache is not None:
+            core_cache.clear()  # Keep only one large frozen checkpoint resident.
+        lm = SensorLanguageModel.from_local(base/spec["checkpoint"], model.cfg.hidden, device, mode=mode,
+                                           dtype=spec.get("dtype", "float32"), prompt_style=spec.get("prompt_style", "auto")).eval()
+        if core_cache is not None:
+            core_cache[core_key] = (lm.lm, lm.tokenizer)
     if saved and "language_adapter" in saved:
         lm.adapter.load_state_dict(saved["language_adapter"])
     query_batch = to_device(batch, device)
@@ -292,19 +304,36 @@ def profile_language(model, batch, spec, base, device, iterations, warmup, saved
     def prefill_fn():
         return lm.lm(inputs_embeds=inputs, attention_mask=mask, use_cache=True, **last_logit)
     def generate_fn():
-        return lm.lm.generate(inputs_embeds=inputs, attention_mask=mask, do_sample=False,
+        generated["ids"] = lm.lm.generate(inputs_embeds=inputs, attention_mask=mask, do_sample=False,
                               min_new_tokens=tokens, max_new_tokens=tokens,
                               pad_token_id=lm.tokenizer.pad_token_id, eos_token_id=lm.tokenizer.eos_token_id)
+        return generated["ids"]
+    generated = {}
+    shape_key = (*core_key, tuple(inputs.shape), tokens, iterations, warmup, tuple(last_logit))
+    reused = shape_cache is not None and shape_key in shape_cache
+    if reused:
+        stages = copy.deepcopy(shape_cache[shape_key])
+    else:
+        stages = {"prefill": measure(prefill_fn, device, iterations, warmup),
+                  "prefill_arithmetic": arithmetic(prefill_fn),
+                  "prefill_and_fixed_decode": measure(generate_fn, device, iterations, warmup),
+                  "generation_arithmetic": arithmetic(generate_fn)}
+        stages["generated_token_ids"] = generated["ids"][0].detach().cpu().tolist()
+        stages["generated_tokens"] = len(stages["generated_token_ids"])
+        if stages["generated_tokens"] != tokens:
+            raise RuntimeError("LM failed fixed-length generation validation")
+        if shape_cache is not None:
+            shape_cache[shape_key] = copy.deepcopy(stages)
     return {"mode": mode, "checkpoint": str(base/spec["checkpoint"]), "prompt_tokens_including_prefix": inputs.shape[1],
             "dtype": str(lm.lm.get_input_embeddings().weight.dtype), "prompt_style": lm.prompt_style,
             "prefill_logit_policy": "last_position" if last_logit else "model_default",
             "decode_tokens": tokens, "storage": storage([lm.lm]+([lm.adapter] if mode == "sensor" else [])),
             "prompt_and_adapter": measure(embedding_fn, device, iterations, warmup),
             "prompt_and_adapter_arithmetic": arithmetic(embedding_fn),
-            "prefill": measure(prefill_fn, device, iterations, warmup),
-            "prefill_arithmetic": arithmetic(prefill_fn),
-            "prefill_and_fixed_decode": measure(generate_fn, device, iterations, warmup),
-            "generation_arithmetic": arithmetic(generate_fn),
+            **stages,
+            "language_measurement": "shape_matched_reuse" if reused else "measured_this_case",
+            "language_shape_id": hashlib.sha256(repr(shape_key).encode()).hexdigest()[:20],
+            "shape_reuse_note": "When enabled, only frozen-core stages are reused for identical checkpoint/device/dtype/batch/sequence/width/decode shapes. Prompt values may differ; adapter and sensor stages are measured separately. Latency is a shape-based estimate for reused cases.",
             "adapter_weights": "checkpoint" if saved and "language_adapter" in saved else "random cost fixture"}
 
 
@@ -331,6 +360,8 @@ def run_suite(spec_path, output, targets=("cpu", "cuda", "mixed"), methods=METHO
     root.mkdir(parents=True, exist_ok=True)
     (root/"input_spec.json").write_text(json.dumps(spec, indent=2))
     results, skipped = [], []
+    core_cache = {}
+    shape_cache = {} if spec.get("reuse_language_shapes", False) else None
     for entry in spec["datasets"]:
         cfg = Config(**entry["config"]).validate()
         for target in targets:
@@ -378,7 +409,8 @@ def run_suite(spec_path, output, targets=("cpu", "cuda", "mixed"), methods=METHO
                 report = profile_model(model, batch, topology, iterations, warmup, scenario["stride_seconds"])
                 if scenario.get("language"):
                     language = profile_language(model, batch, scenario["language"], path.parent,
-                                                topology["core_device"], iterations, warmup, saved)
+                                                topology["core_device"], iterations, warmup, saved,
+                                                core_cache, shape_cache)
                     report["core"]["language"] = language
                     report["scope"]["language_model"] = "included_separate_prompt_specific_stage"
                     report["total_deployed_with_language"] = {

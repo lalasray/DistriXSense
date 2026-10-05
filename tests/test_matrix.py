@@ -8,6 +8,8 @@ import torch
 from distrixsense.config import Config
 from distrixsense.data import make_synthetic
 from distrixsense.matrix import expand_matrix, run_matrix
+from distrixsense.models import DistributedModel
+from distrixsense.profiling import profile_language, synthetic_batch
 from test_language import tiny_local_lm, HAS_TRANSFORMERS
 
 
@@ -72,6 +74,28 @@ class MatrixTests(unittest.TestCase):
         self.assertGreater(int(a["full_parameters"]), int(a["parameters"]))
         self.assertEqual(a["wire_bytes"], b["wire_bytes"])
         self.assertEqual(len(list(result.parent.glob('*-cpu-distrixsense.json'))), 6)
+
+    @unittest.skipUnless(HAS_TRANSFORMERS, "Optional language dependencies not installed")
+    def test_core_shape_reuse_is_explicit_and_decode_budget_invalidates_it(self):
+        tiny_local_lm(self.root/"lm-a", width=16)
+        batch = synthetic_batch(self.cfg, self.spec['datasets'][0]['inputs'], 3)
+        model = DistributedModel(self.cfg).eval()
+        spec = dict(checkpoint='lm-a', decode_tokens=2)
+        cores, shapes = {}, {}
+        first = profile_language(model, batch, spec, self.root, 'cpu', 1, 0,
+                                 core_cache=cores, shape_cache=shapes)
+        second = profile_language(model, batch, spec, self.root, 'cpu', 1, 0,
+                                  core_cache=cores, shape_cache=shapes)
+        self.assertEqual(first['language_measurement'], 'measured_this_case')
+        self.assertEqual(second['language_measurement'], 'shape_matched_reuse')
+        self.assertEqual(first['language_shape_id'], second['language_shape_id'])
+        self.assertEqual(first['generation_arithmetic'], second['generation_arithmetic'])
+        self.assertEqual(first['generated_tokens'], 2)
+        third = profile_language(model, batch, {**spec,'decode_tokens':3}, self.root, 'cpu', 1, 0,
+                                 core_cache=cores, shape_cache=shapes)
+        self.assertEqual(third['language_measurement'], 'measured_this_case')
+        self.assertNotEqual(first['language_shape_id'], third['language_shape_id'])
+        self.assertEqual(third['generated_tokens'], 3)
 
     @unittest.skipUnless(HAS_TRANSFORMERS, "Optional language dependencies not installed")
     def test_training_matrix_retains_core_specific_checkpoints_and_answers(self):
