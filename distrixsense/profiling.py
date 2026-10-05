@@ -269,7 +269,12 @@ def profile_language(model, batch, spec, base, device, iterations, warmup, saved
     mode = spec.get("mode", "sensor")
     if model.cfg.method in LOCAL and mode == "sensor":
         mode = "classifier"
-    lm = SensorLanguageModel.from_local(base/spec["checkpoint"], model.cfg.hidden, device, mode=mode).eval()
+    if saved and "language_adapter" in saved:
+        provenance = saved["provenance"]
+        if Path(provenance["language_checkpoint"]).resolve() != (base/spec["checkpoint"]).resolve() or provenance["language_mode"] != mode:
+            raise ValueError("Saved language adapter belongs to a different LLM core or prompt mode")
+    lm = SensorLanguageModel.from_local(base/spec["checkpoint"], model.cfg.hidden, device, mode=mode,
+                                       dtype=spec.get("dtype", "float32"), prompt_style=spec.get("prompt_style", "auto")).eval()
     if saved and "language_adapter" in saved:
         lm.adapter.load_state_dict(saved["language_adapter"])
     query_batch = to_device(batch, device)
@@ -291,6 +296,7 @@ def profile_language(model, batch, spec, base, device, iterations, warmup, saved
                               min_new_tokens=tokens, max_new_tokens=tokens,
                               pad_token_id=lm.tokenizer.pad_token_id, eos_token_id=lm.tokenizer.eos_token_id)
     return {"mode": mode, "checkpoint": str(base/spec["checkpoint"]), "prompt_tokens_including_prefix": inputs.shape[1],
+            "dtype": str(lm.lm.get_input_embeddings().weight.dtype), "prompt_style": lm.prompt_style,
             "prefill_logit_policy": "last_position" if last_logit else "model_default",
             "decode_tokens": tokens, "storage": storage([lm.lm]+([lm.adapter] if mode == "sensor" else [])),
             "prompt_and_adapter": measure(embedding_fn, device, iterations, warmup),
@@ -335,6 +341,10 @@ def run_suite(spec_path, output, targets=("cpu", "cuda", "mixed"), methods=METHO
                                 "reason": "CUDA-enabled PyTorch and accessible GPU required"})
                 continue
             for method in methods:
+                if method in entry.get("excluded_methods", []):
+                    skipped.append({"dataset": entry["dataset"], "scenario_id": entry.get("scenario_id"),
+                                    "target": target, "method": method, "status": "unsupported_modality_subset"})
+                    continue
                 if method not in METHODS:
                     raise ValueError(f"Unknown method: {method}")
                 scenario = {**entry, **entry.get("method_profiles", {}).get(method, {})}
@@ -376,41 +386,53 @@ def run_suite(spec_path, output, targets=("cpu", "cuda", "mixed"), methods=METHO
                            for k in ("parameters", "weight_bytes", "buffer_bytes", "serialized_state_bytes")},
                         "counted_flops": report["total_deployed"]["counted_flops"]+language["generation_arithmetic"]["counted_flops"]+language["prompt_and_adapter_arithmetic"]["counted_flops"],
                         "wire_bytes": report["total_deployed"]["wire_bytes"]}
+                    report["with_language_latency_estimates"] = {
+                        "colocated_pipeline_ms": report["measured_colocated_sequential_pipeline"]["median_ms"]+language["prompt_and_adapter"]["median_ms"]+language["prefill_and_fixed_decode"]["median_ms"],
+                        "parallel_edges_and_links_ms": report["schedule_estimates"]["parallel_independent_edges_and_links_ms"]+language["prompt_and_adapter"]["median_ms"]+language["prefill_and_fixed_decode"]["median_ms"]}
                 report.update(dataset=scenario["dataset"], target=target, configuration=model.cfg.to_dict(),
+                              scenario_id=entry.get("scenario_id", entry["dataset"]),
+                              core_name=entry.get("core_name", "sensor_only"), modality_set=entry.get("modality_set", "all"),
                               input_shapes={n: list(s["x"].shape) for n, s in batch["streams"].items()},
                               evidence="checkpoint" if checkpoint else "random_weights_cost_fixture",
                               input_provenance=scenario.get("description", "Explicit user-provided input assumptions"))
                 if method == "imagebind":
                     report["limitations"].append("ImageBind fusion branch only. Input dimensions must be actual ImageBind embeddings for a valid ImageBind cost comparison; pretrained encoders are not included.")
-                filename = f"{entry['dataset'].replace('+','plus')}-{target}-{method}.json"
+                filename = f"{entry.get('scenario_id', entry['dataset']).replace('+','plus')}-{target}-{method}.json"
                 (root/filename).write_text(json.dumps(report, indent=2))
                 results.append(report)
                 print(f"profile {entry['dataset']} {target} {method}: {report['total_deployed']['parameters']} parameters", flush=True)
     (root/"availability.json").write_text(json.dumps(skipped, indent=2))
-    columns = ["dataset", "target", "method", "parameters", "weight_bytes", "counted_flops", "wire_bytes",
-               "core_parameters", "edge_parameters", "core_median_ms", "parallel_estimate_ms", "sequential_estimate_ms"]
+    columns = ["dataset", "target", "method", "scenario_id", "core_name", "modality_set", "parameters", "weight_bytes", "counted_flops", "wire_bytes",
+               "core_parameters", "edge_parameters", "core_median_ms", "parallel_estimate_ms", "sequential_estimate_ms",
+               "full_parameters", "full_weight_bytes", "full_counted_flops", "lm_parameters", "lm_generation_ms", "full_pipeline_estimate_ms"]
     with (root/"summary.csv").open("w") as handle:
         writer = csv.DictWriter(handle, fieldnames=columns)
         writer.writeheader()
         for r in results:
-            writer.writerow({**{k: r[k] for k in ("dataset", "target", "method")},
+            full = r.get("total_deployed_with_language", r["total_deployed"])
+            language = r["core"].get("language", {})
+            writer.writerow({**{k: r[k] for k in ("dataset", "target", "method", "scenario_id", "core_name", "modality_set")},
                              **{k: r["total_deployed"][k] for k in ("parameters", "weight_bytes", "counted_flops", "wire_bytes")},
                              "core_parameters": r["core"]["storage"]["parameters"],
                              "edge_parameters": sum(e["storage"]["parameters"] for e in r["edges"].values()),
                              "core_median_ms": r["core"]["compute"]["median_ms"],
                              "parallel_estimate_ms": r["schedule_estimates"]["parallel_independent_edges_and_links_ms"],
-                             "sequential_estimate_ms": r["schedule_estimates"]["sequential_edges_and_links_ms"]})
+                             "sequential_estimate_ms": r["schedule_estimates"]["sequential_edges_and_links_ms"],
+                             "full_parameters": full["parameters"], "full_weight_bytes": full["weight_bytes"], "full_counted_flops": full["counted_flops"],
+                             "lm_parameters": language.get("storage", {}).get("parameters", 0),
+                             "lm_generation_ms": language.get("prefill_and_fixed_decode", {}).get("median_ms"),
+                             "full_pipeline_estimate_ms": r.get("with_language_latency_estimates", {}).get("colocated_pipeline_ms", r["measured_colocated_sequential_pipeline"]["median_ms"])})
     text = "# Deployment cost fixtures\n\nThese are shape-dependent cost measurements, not real-dataset performance results. FLOPs exclude unmodeled operators. GPU availability is recorded separately.\n\n|Dataset|Target|Method|Deployed parameters|Weight MiB|Counted MFLOPs|Wire KiB|Core ms|Parallel estimate ms|\n|---|---|---|---:|---:|---:|---:|---:|---:|\n"
     for r in results:
-        v = r["total_deployed"]
-        text += f"|{r['dataset']}|{r['target']}|{r['method']}|{v['parameters']}|{v['weight_bytes']/2**20:.3f}|{v['counted_flops']/1e6:.3f}|{v['wire_bytes']/1024:.3f}|{r['core']['compute']['median_ms']:.3f}|{r['schedule_estimates']['parallel_independent_edges_and_links_ms']:.3f}|\n"
+        v = r.get("total_deployed_with_language", r["total_deployed"])
+        text += f"|{r['scenario_id']}|{r['target']}|{r['method']}|{v['parameters']}|{v['weight_bytes']/2**20:.3f}|{v['counted_flops']/1e6:.3f}|{v['wire_bytes']/1024:.3f}|{r['core']['compute']['median_ms']:.3f}|{r['schedule_estimates']['parallel_independent_edges_and_links_ms']:.3f}|\n"
     (root/"summary.md").write_text(text)
     write_device_table(root, results)
     return root/"summary.md"
 
 
 def write_device_table(root, results):
-    fields = ["dataset", "target", "method", "side", "node", "streams", "parameters", "weight_bytes",
+    fields = ["dataset", "target", "method", "scenario_id", "core_name", "modality_set", "side", "node", "streams", "parameters", "weight_bytes",
               "buffer_bytes", "serialized_state_bytes", "counted_flops", "compute_median_ms", "compute_p95_ms",
               "encoding_or_decoding_ms", "wire_bytes", "transfer_ms", "bandwidth_mbps", "link_utilization"]
     with (Path(root)/"devices.csv").open("w") as handle:
@@ -418,9 +440,13 @@ def write_device_table(root, results):
         writer.writeheader()
         for report in results:
             stages = [(node, stage, True) for node, stage in report["edges"].items()]+[("core", report["core"], False)]
+            language = report["core"].get("language")
+            if language:
+                stages.append(("core_language", {"storage": language["storage"], "compute": language["prefill_and_fixed_decode"],
+                    "decoding": language["prompt_and_adapter"], "arithmetic": {"counted_flops": language["generation_arithmetic"]["counted_flops"]+language["prompt_and_adapter_arithmetic"]["counted_flops"]}}, False))
             for node, stage, edge in stages:
                 network = stage.get("network", {})
-                writer.writerow({**{k: report[k] for k in ("dataset", "target", "method")},
+                writer.writerow({**{k: report.get(k) for k in ("dataset", "target", "method", "scenario_id", "core_name", "modality_set")},
                                  "side": "edge" if edge else "core", "node": node,
                                  "streams": ",".join(stage.get("streams", [])), **stage["storage"],
                                  "counted_flops": stage["arithmetic"]["counted_flops"],

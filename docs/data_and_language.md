@@ -146,7 +146,7 @@ actual answer tokens only; prefix and query positions are ignored. Gradients pas
 through the frozen LM to the adapter and sensor model. Checkpoints save adapter
 weights and the local LM path; generation uses greedy decoding, 64 new tokens.
 
-The exact prompt is:
+The common prompt content is (native chat templates wrap it when configured):
 
 ```text
 Interpret the supplied sensor evidence. Answer the query concisely. If the evidence is insufficient, say 'Insufficient evidence'.

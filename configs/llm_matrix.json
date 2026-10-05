@@ -1,0 +1,835 @@
+{
+  "datasets": [
+    {
+      "dataset": "opportunity++",
+      "description": "ILLUSTRATIVE synthetic feature-cost scenario. One stream per catalog family; not a release inventory. Related inertial families may overlap. Classes=10 is an assumption. Image pooling grid=8; stereo STFT=514 features; pose dimensions explicit. Feature extraction costs excluded. Node grouping is an illustrative deployment.",
+      "window_seconds": 3,
+      "stride_seconds": 1.5,
+      "config": {
+        "modalities": {
+          "imu": 6,
+          "accelerometer": 3,
+          "gyroscope": 3,
+          "magnetometer": 3,
+          "orientation": 4,
+          "shoe_imu": 6,
+          "uwb": 3,
+          "switch": 1,
+          "ambient_accelerometer": 3,
+          "object_imu": 6,
+          "rgb": 192,
+          "body25": 75
+        },
+        "classes": 10,
+        "hidden": 32,
+        "heads": 4,
+        "layers": 2,
+        "resample_length": 32,
+        "tokens": 8,
+        "bank_size": 32,
+        "modality_dropout": 0,
+        "dropout": 0
+      },
+      "inputs": {
+        "imu": {
+          "frames": 90,
+          "available": true
+        },
+        "accelerometer": {
+          "frames": 90,
+          "available": true
+        },
+        "gyroscope": {
+          "frames": 90,
+          "available": true
+        },
+        "magnetometer": {
+          "frames": 90,
+          "available": true
+        },
+        "orientation": {
+          "frames": 90,
+          "available": true
+        },
+        "shoe_imu": {
+          "frames": 90,
+          "available": true
+        },
+        "uwb": {
+          "frames": 90,
+          "available": true
+        },
+        "switch": {
+          "frames": 90,
+          "available": true
+        },
+        "ambient_accelerometer": {
+          "frames": 90,
+          "available": true
+        },
+        "object_imu": {
+          "frames": 90,
+          "available": true
+        },
+        "rgb": {
+          "frames": 30,
+          "available": true
+        },
+        "body25": {
+          "frames": 90,
+          "available": true
+        }
+      },
+      "topology": {
+        "stream_devices": {
+          "imu": "sensor_imu",
+          "accelerometer": "sensor_accelerometer",
+          "gyroscope": "sensor_gyroscope",
+          "magnetometer": "sensor_magnetometer",
+          "orientation": "sensor_orientation",
+          "shoe_imu": "sensor_shoe_imu",
+          "uwb": "sensor_uwb",
+          "switch": "sensor_switch",
+          "ambient_accelerometer": "sensor_ambient_accelerometer",
+          "object_imu": "sensor_object_imu",
+          "rgb": "camera_processor",
+          "body25": "motion_processor"
+        },
+        "edges": {
+          "sensor_switch": {
+            "bandwidth_mbps": 10,
+            "latency_ms": 2,
+            "overhead_bytes_per_packet": 28
+          },
+          "sensor_orientation": {
+            "bandwidth_mbps": 10,
+            "latency_ms": 2,
+            "overhead_bytes_per_packet": 28
+          },
+          "motion_processor": {
+            "bandwidth_mbps": 10,
+            "latency_ms": 2,
+            "overhead_bytes_per_packet": 28
+          },
+          "sensor_accelerometer": {
+            "bandwidth_mbps": 10,
+            "latency_ms": 2,
+            "overhead_bytes_per_packet": 28
+          },
+          "camera_processor": {
+            "bandwidth_mbps": 10,
+            "latency_ms": 2,
+            "overhead_bytes_per_packet": 28
+          },
+          "sensor_object_imu": {
+            "bandwidth_mbps": 10,
+            "latency_ms": 2,
+            "overhead_bytes_per_packet": 28
+          },
+          "sensor_ambient_accelerometer": {
+            "bandwidth_mbps": 10,
+            "latency_ms": 2,
+            "overhead_bytes_per_packet": 28
+          },
+          "sensor_imu": {
+            "bandwidth_mbps": 10,
+            "latency_ms": 2,
+            "overhead_bytes_per_packet": 28
+          },
+          "sensor_gyroscope": {
+            "bandwidth_mbps": 10,
+            "latency_ms": 2,
+            "overhead_bytes_per_packet": 28
+          },
+          "sensor_uwb": {
+            "bandwidth_mbps": 10,
+            "latency_ms": 2,
+            "overhead_bytes_per_packet": 28
+          },
+          "sensor_magnetometer": {
+            "bandwidth_mbps": 10,
+            "latency_ms": 2,
+            "overhead_bytes_per_packet": 28
+          },
+          "sensor_shoe_imu": {
+            "bandwidth_mbps": 10,
+            "latency_ms": 2,
+            "overhead_bytes_per_packet": 28
+          }
+        },
+        "shared_uplink": {
+          "bandwidth_mbps": 10,
+          "latency_ms": 2,
+          "overhead_bytes_per_packet": 0
+        }
+      },
+      "method_profiles": {
+        "imagebind": {
+          "description": "SUPPLEMENTARY ImageBind fusion-only cost fixture: supported subset with assumed 1024-dimensional embeddings, one per window. Does not include pretrained ImageBind encoders and is not an all-modality comparison.",
+          "config": {
+            "modalities": {
+              "rgb": 1024,
+              "imu": 1024
+            },
+            "classes": 10,
+            "hidden": 32,
+            "heads": 4,
+            "layers": 2,
+            "resample_length": 32,
+            "tokens": 8,
+            "bank_size": 32,
+            "modality_dropout": 0,
+            "dropout": 0
+          },
+          "inputs": {
+            "rgb": {
+              "frames": 1
+            },
+            "imu": {
+              "frames": 1
+            }
+          },
+          "topology": {
+            "stream_devices": {
+              "rgb": "camera_processor",
+              "imu": "sensor_imu"
+            },
+            "edges": {
+              "camera_processor": {
+                "bandwidth_mbps": 10,
+                "latency_ms": 2,
+                "overhead_bytes_per_packet": 28
+              },
+              "sensor_imu": {
+                "bandwidth_mbps": 10,
+                "latency_ms": 2,
+                "overhead_bytes_per_packet": 28
+              }
+            }
+          }
+        }
+      },
+      "include_each_modality": true,
+      "include_leave_one_out": false,
+      "modality_sets": {
+        "all": "all"
+      }
+    },
+    {
+      "dataset": "openmarcie",
+      "description": "ILLUSTRATIVE synthetic feature-cost scenario. One stream per catalog family; not a release inventory. Related inertial families may overlap. Classes=10 is an assumption. Image pooling grid=8; stereo STFT=514 features; pose dimensions explicit. Feature extraction costs excluded. Node grouping is an illustrative deployment.",
+      "window_seconds": 3,
+      "stride_seconds": 1.5,
+      "config": {
+        "modalities": {
+          "imu": 6,
+          "accelerometer": 3,
+          "gyroscope": 3,
+          "magnetometer": 3,
+          "orientation": 4,
+          "barometer": 1,
+          "temperature": 1,
+          "spectrometer": 8,
+          "thermal": 64,
+          "rgb": 192,
+          "depth": 64,
+          "lidar_depth": 64,
+          "lidar_points": 12,
+          "audio": 514,
+          "pose2d": 75,
+          "pose3d": 75,
+          "object_tracks": 8,
+          "position": 3
+        },
+        "classes": 10,
+        "hidden": 32,
+        "heads": 4,
+        "layers": 2,
+        "resample_length": 32,
+        "tokens": 8,
+        "bank_size": 32,
+        "modality_dropout": 0,
+        "dropout": 0
+      },
+      "inputs": {
+        "imu": {
+          "frames": 90,
+          "available": true
+        },
+        "accelerometer": {
+          "frames": 90,
+          "available": true
+        },
+        "gyroscope": {
+          "frames": 90,
+          "available": true
+        },
+        "magnetometer": {
+          "frames": 90,
+          "available": true
+        },
+        "orientation": {
+          "frames": 90,
+          "available": true
+        },
+        "barometer": {
+          "frames": 90,
+          "available": true
+        },
+        "temperature": {
+          "frames": 90,
+          "available": true
+        },
+        "spectrometer": {
+          "frames": 90,
+          "available": true
+        },
+        "thermal": {
+          "frames": 30,
+          "available": true
+        },
+        "rgb": {
+          "frames": 30,
+          "available": true
+        },
+        "depth": {
+          "frames": 30,
+          "available": true
+        },
+        "lidar_depth": {
+          "frames": 30,
+          "available": true
+        },
+        "lidar_points": {
+          "frames": 30,
+          "available": true
+        },
+        "audio": {
+          "frames": 561,
+          "available": true
+        },
+        "pose2d": {
+          "frames": 90,
+          "available": true
+        },
+        "pose3d": {
+          "frames": 90,
+          "available": true
+        },
+        "object_tracks": {
+          "frames": 90,
+          "available": true
+        },
+        "position": {
+          "frames": 90,
+          "available": true
+        }
+      },
+      "topology": {
+        "stream_devices": {
+          "imu": "sensor_imu",
+          "accelerometer": "sensor_accelerometer",
+          "gyroscope": "sensor_gyroscope",
+          "magnetometer": "sensor_magnetometer",
+          "orientation": "sensor_orientation",
+          "barometer": "sensor_barometer",
+          "temperature": "sensor_temperature",
+          "spectrometer": "sensor_spectrometer",
+          "thermal": "camera_processor",
+          "rgb": "camera_processor",
+          "depth": "camera_processor",
+          "lidar_depth": "camera_processor",
+          "lidar_points": "scene_processor",
+          "audio": "audio_processor",
+          "pose2d": "motion_processor",
+          "pose3d": "motion_processor",
+          "object_tracks": "sensor_object_tracks",
+          "position": "sensor_position"
+        },
+        "edges": {
+          "sensor_orientation": {
+            "bandwidth_mbps": 10,
+            "latency_ms": 2,
+            "overhead_bytes_per_packet": 28
+          },
+          "sensor_barometer": {
+            "bandwidth_mbps": 10,
+            "latency_ms": 2,
+            "overhead_bytes_per_packet": 28
+          },
+          "sensor_accelerometer": {
+            "bandwidth_mbps": 10,
+            "latency_ms": 2,
+            "overhead_bytes_per_packet": 28
+          },
+          "motion_processor": {
+            "bandwidth_mbps": 10,
+            "latency_ms": 2,
+            "overhead_bytes_per_packet": 28
+          },
+          "camera_processor": {
+            "bandwidth_mbps": 10,
+            "latency_ms": 2,
+            "overhead_bytes_per_packet": 28
+          },
+          "sensor_object_tracks": {
+            "bandwidth_mbps": 10,
+            "latency_ms": 2,
+            "overhead_bytes_per_packet": 28
+          },
+          "sensor_imu": {
+            "bandwidth_mbps": 10,
+            "latency_ms": 2,
+            "overhead_bytes_per_packet": 28
+          },
+          "sensor_gyroscope": {
+            "bandwidth_mbps": 10,
+            "latency_ms": 2,
+            "overhead_bytes_per_packet": 28
+          },
+          "sensor_temperature": {
+            "bandwidth_mbps": 10,
+            "latency_ms": 2,
+            "overhead_bytes_per_packet": 28
+          },
+          "scene_processor": {
+            "bandwidth_mbps": 10,
+            "latency_ms": 2,
+            "overhead_bytes_per_packet": 28
+          },
+          "sensor_position": {
+            "bandwidth_mbps": 10,
+            "latency_ms": 2,
+            "overhead_bytes_per_packet": 28
+          },
+          "audio_processor": {
+            "bandwidth_mbps": 10,
+            "latency_ms": 2,
+            "overhead_bytes_per_packet": 28
+          },
+          "sensor_magnetometer": {
+            "bandwidth_mbps": 10,
+            "latency_ms": 2,
+            "overhead_bytes_per_packet": 28
+          },
+          "sensor_spectrometer": {
+            "bandwidth_mbps": 10,
+            "latency_ms": 2,
+            "overhead_bytes_per_packet": 28
+          }
+        },
+        "shared_uplink": {
+          "bandwidth_mbps": 10,
+          "latency_ms": 2,
+          "overhead_bytes_per_packet": 0
+        }
+      },
+      "method_profiles": {
+        "imagebind": {
+          "description": "SUPPLEMENTARY ImageBind fusion-only cost fixture: supported subset with assumed 1024-dimensional embeddings, one per window. Does not include pretrained ImageBind encoders and is not an all-modality comparison.",
+          "config": {
+            "modalities": {
+              "rgb": 1024,
+              "depth": 1024,
+              "thermal": 1024,
+              "audio": 1024,
+              "imu": 1024
+            },
+            "classes": 10,
+            "hidden": 32,
+            "heads": 4,
+            "layers": 2,
+            "resample_length": 32,
+            "tokens": 8,
+            "bank_size": 32,
+            "modality_dropout": 0,
+            "dropout": 0
+          },
+          "inputs": {
+            "rgb": {
+              "frames": 1
+            },
+            "depth": {
+              "frames": 1
+            },
+            "thermal": {
+              "frames": 1
+            },
+            "audio": {
+              "frames": 1
+            },
+            "imu": {
+              "frames": 1
+            }
+          },
+          "topology": {
+            "stream_devices": {
+              "rgb": "camera_processor",
+              "depth": "camera_processor",
+              "thermal": "camera_processor",
+              "audio": "audio_processor",
+              "imu": "sensor_imu"
+            },
+            "edges": {
+              "camera_processor": {
+                "bandwidth_mbps": 10,
+                "latency_ms": 2,
+                "overhead_bytes_per_packet": 28
+              },
+              "sensor_imu": {
+                "bandwidth_mbps": 10,
+                "latency_ms": 2,
+                "overhead_bytes_per_packet": 28
+              },
+              "audio_processor": {
+                "bandwidth_mbps": 10,
+                "latency_ms": 2,
+                "overhead_bytes_per_packet": 28
+              }
+            }
+          }
+        }
+      },
+      "include_each_modality": true,
+      "include_leave_one_out": false,
+      "modality_sets": {
+        "all": "all"
+      }
+    },
+    {
+      "dataset": "nymeria",
+      "description": "ILLUSTRATIVE synthetic feature-cost scenario. One stream per catalog family; not a release inventory. Related inertial families may overlap. Classes=10 is an assumption. Image pooling grid=8; stereo STFT=514 features; pose dimensions explicit. Feature extraction costs excluded. Node grouping is an illustrative deployment.",
+      "window_seconds": 3,
+      "stride_seconds": 1.5,
+      "config": {
+        "modalities": {
+          "imu": 6,
+          "accelerometer": 3,
+          "gyroscope": 3,
+          "magnetometer": 3,
+          "orientation": 4,
+          "rgb": 192,
+          "slam": 64,
+          "eye_images": 64,
+          "gaze": 3,
+          "barometer": 1,
+          "audio": 514,
+          "trajectory": 7,
+          "pointcloud": 12,
+          "xsens": 161,
+          "body_position": 69,
+          "body_orientation": 92,
+          "body_velocity": 69,
+          "body_acceleration": 69,
+          "joint_angles": 69,
+          "foot_contacts": 4
+        },
+        "classes": 10,
+        "hidden": 32,
+        "heads": 4,
+        "layers": 2,
+        "resample_length": 32,
+        "tokens": 8,
+        "bank_size": 32,
+        "modality_dropout": 0,
+        "dropout": 0
+      },
+      "inputs": {
+        "imu": {
+          "frames": 90,
+          "available": true
+        },
+        "accelerometer": {
+          "frames": 90,
+          "available": true
+        },
+        "gyroscope": {
+          "frames": 90,
+          "available": true
+        },
+        "magnetometer": {
+          "frames": 90,
+          "available": true
+        },
+        "orientation": {
+          "frames": 90,
+          "available": true
+        },
+        "rgb": {
+          "frames": 30,
+          "available": true
+        },
+        "slam": {
+          "frames": 30,
+          "available": true
+        },
+        "eye_images": {
+          "frames": 30,
+          "available": true
+        },
+        "gaze": {
+          "frames": 90,
+          "available": true
+        },
+        "barometer": {
+          "frames": 90,
+          "available": true
+        },
+        "audio": {
+          "frames": 561,
+          "available": true
+        },
+        "trajectory": {
+          "frames": 90,
+          "available": true
+        },
+        "pointcloud": {
+          "frames": 30,
+          "available": true
+        },
+        "xsens": {
+          "frames": 90,
+          "available": true
+        },
+        "body_position": {
+          "frames": 90,
+          "available": true
+        },
+        "body_orientation": {
+          "frames": 90,
+          "available": true
+        },
+        "body_velocity": {
+          "frames": 90,
+          "available": true
+        },
+        "body_acceleration": {
+          "frames": 90,
+          "available": true
+        },
+        "joint_angles": {
+          "frames": 90,
+          "available": true
+        },
+        "foot_contacts": {
+          "frames": 90,
+          "available": true
+        }
+      },
+      "topology": {
+        "stream_devices": {
+          "imu": "sensor_imu",
+          "accelerometer": "sensor_accelerometer",
+          "gyroscope": "sensor_gyroscope",
+          "magnetometer": "sensor_magnetometer",
+          "orientation": "sensor_orientation",
+          "rgb": "camera_processor",
+          "slam": "camera_processor",
+          "eye_images": "camera_processor",
+          "gaze": "sensor_gaze",
+          "barometer": "sensor_barometer",
+          "audio": "audio_processor",
+          "trajectory": "sensor_trajectory",
+          "pointcloud": "scene_processor",
+          "xsens": "motion_processor",
+          "body_position": "motion_processor",
+          "body_orientation": "motion_processor",
+          "body_velocity": "motion_processor",
+          "body_acceleration": "motion_processor",
+          "joint_angles": "motion_processor",
+          "foot_contacts": "sensor_foot_contacts"
+        },
+        "edges": {
+          "sensor_orientation": {
+            "bandwidth_mbps": 10,
+            "latency_ms": 2,
+            "overhead_bytes_per_packet": 28
+          },
+          "sensor_barometer": {
+            "bandwidth_mbps": 10,
+            "latency_ms": 2,
+            "overhead_bytes_per_packet": 28
+          },
+          "sensor_accelerometer": {
+            "bandwidth_mbps": 10,
+            "latency_ms": 2,
+            "overhead_bytes_per_packet": 28
+          },
+          "motion_processor": {
+            "bandwidth_mbps": 10,
+            "latency_ms": 2,
+            "overhead_bytes_per_packet": 28
+          },
+          "camera_processor": {
+            "bandwidth_mbps": 10,
+            "latency_ms": 2,
+            "overhead_bytes_per_packet": 28
+          },
+          "sensor_gaze": {
+            "bandwidth_mbps": 10,
+            "latency_ms": 2,
+            "overhead_bytes_per_packet": 28
+          },
+          "sensor_foot_contacts": {
+            "bandwidth_mbps": 10,
+            "latency_ms": 2,
+            "overhead_bytes_per_packet": 28
+          },
+          "sensor_imu": {
+            "bandwidth_mbps": 10,
+            "latency_ms": 2,
+            "overhead_bytes_per_packet": 28
+          },
+          "sensor_gyroscope": {
+            "bandwidth_mbps": 10,
+            "latency_ms": 2,
+            "overhead_bytes_per_packet": 28
+          },
+          "scene_processor": {
+            "bandwidth_mbps": 10,
+            "latency_ms": 2,
+            "overhead_bytes_per_packet": 28
+          },
+          "sensor_trajectory": {
+            "bandwidth_mbps": 10,
+            "latency_ms": 2,
+            "overhead_bytes_per_packet": 28
+          },
+          "audio_processor": {
+            "bandwidth_mbps": 10,
+            "latency_ms": 2,
+            "overhead_bytes_per_packet": 28
+          },
+          "sensor_magnetometer": {
+            "bandwidth_mbps": 10,
+            "latency_ms": 2,
+            "overhead_bytes_per_packet": 28
+          }
+        },
+        "shared_uplink": {
+          "bandwidth_mbps": 10,
+          "latency_ms": 2,
+          "overhead_bytes_per_packet": 0
+        }
+      },
+      "method_profiles": {
+        "imagebind": {
+          "description": "SUPPLEMENTARY ImageBind fusion-only cost fixture: supported subset with assumed 1024-dimensional embeddings, one per window. Does not include pretrained ImageBind encoders and is not an all-modality comparison.",
+          "config": {
+            "modalities": {
+              "rgb": 1024,
+              "audio": 1024,
+              "imu": 1024
+            },
+            "classes": 10,
+            "hidden": 32,
+            "heads": 4,
+            "layers": 2,
+            "resample_length": 32,
+            "tokens": 8,
+            "bank_size": 32,
+            "modality_dropout": 0,
+            "dropout": 0
+          },
+          "inputs": {
+            "rgb": {
+              "frames": 1
+            },
+            "audio": {
+              "frames": 1
+            },
+            "imu": {
+              "frames": 1
+            }
+          },
+          "topology": {
+            "stream_devices": {
+              "rgb": "camera_processor",
+              "audio": "audio_processor",
+              "imu": "sensor_imu"
+            },
+            "edges": {
+              "camera_processor": {
+                "bandwidth_mbps": 10,
+                "latency_ms": 2,
+                "overhead_bytes_per_packet": 28
+              },
+              "sensor_imu": {
+                "bandwidth_mbps": 10,
+                "latency_ms": 2,
+                "overhead_bytes_per_packet": 28
+              },
+              "audio_processor": {
+                "bandwidth_mbps": 10,
+                "latency_ms": 2,
+                "overhead_bytes_per_packet": 28
+              }
+            }
+          }
+        }
+      },
+      "include_each_modality": true,
+      "include_leave_one_out": false,
+      "modality_sets": {
+        "all": "all"
+      }
+    }
+  ],
+  "cores": [
+    {
+      "name": "gemma3_1b",
+      "checkpoint": "/LOCAL_MODELS/gemma-3-1b-it",
+      "dtype": "bfloat16",
+      "prompt_style": "auto",
+      "mode": "sensor",
+      "decode_tokens": 16,
+      "source": "https://huggingface.co/google/gemma-3-1b-it"
+    },
+    {
+      "name": "qwen3_4b",
+      "checkpoint": "/LOCAL_MODELS/Qwen3-4B",
+      "dtype": "bfloat16",
+      "prompt_style": "auto",
+      "mode": "sensor",
+      "decode_tokens": 16,
+      "source": "https://huggingface.co/Qwen/Qwen3-4B"
+    },
+    {
+      "name": "qwen3_8b",
+      "checkpoint": "/LOCAL_MODELS/Qwen3-8B",
+      "dtype": "bfloat16",
+      "prompt_style": "auto",
+      "mode": "sensor",
+      "decode_tokens": 16,
+      "source": "https://huggingface.co/Qwen/Qwen3-8B"
+    }
+  ],
+  "methods": [
+    "distrixsense",
+    "dense",
+    "dense_tokens",
+    "raw",
+    "early_fusion",
+    "late_fusion",
+    "local_only",
+    "bottleneck",
+    "tokenlearner",
+    "posthoc_vq",
+    "joint_vq",
+    "deepconvlstm",
+    "unrestricted_bank",
+    "separate_banks",
+    "fixed_resampling",
+    "finetune_encoders",
+    "no_alignment",
+    "no_usage",
+    "tcn",
+    "ts_transformer",
+    "patchtst"
+  ],
+  "seeds": [
+    0,
+    1,
+    2
+  ]
+}

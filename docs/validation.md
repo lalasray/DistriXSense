@@ -9,7 +9,7 @@ those versions and CUDA have not been separately exercised here.
 .venv/bin/python -m distrixsense smoke --output runs/validation
 ```
 
-All 43 tests passed. The tests cover participant leakage rejection, training-only
+All 50 tests passed. The tests cover participant leakage rejection, training-only
 normalization, annotation-column exclusion, asynchronous recording preparation,
 timestamp interpolation, padding invariance, all-missing sensors, frozen encoders,
 selector/bank gradients, reserved-bank enforcement, packet corruption and bit widths,
@@ -46,3 +46,5 @@ official ImageBind pretrained inference, useful local-LM QA, hardware deployment
 measured network latency and energy require the actual data, weights or instruments.
 
 Additional temporal tests verify TCN causality, PatchTST tail coverage and missing-channel exclusion, gradient flow, masked-input invariance and checkpoint restoration. The 21-method smoke suite completed in `runs/temporal-baselines-validation`.
+
+The modality/LLM matrix is validated with two different tiny local causal-LM widths, including per-modality cost tables and core-specific training/checkpoints. BF16-core gradients and native chat-template prefix handling are tested. Actual 1B/4B/8B pretrained core runs require local weights and prepared annotated data and have not been run.

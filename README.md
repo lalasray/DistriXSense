@@ -70,6 +70,10 @@ Use `profile-suite` for model size, per-edge/core FLOPs and timings, packet volu
 and modeled transfer costs. The [profiling guide](docs/profiling.md) explains CPU,
 GPU and mixed runs, local checkpoints and the illustrative three-dataset spec.
 
+Use `matrix-suite` for each sensing modality/group with multiple local LLM cores.
+The [LLM comparison guide](docs/llm_matrix.md) covers matched training/evaluation,
+complete core costs and the configured 1B, 4B and 8B checkpoint choices.
+
 Each run writes `best.pt`, `config.json`, `norm_stats.json`, `metrics.json`,
 `predictions.jsonl`, and training history when applicable. The suite creates
 `summary.csv`, `summary.md` and `comparisons.json` with participant-level paired

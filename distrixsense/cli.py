@@ -47,6 +47,8 @@ def main(argv=None):
         item.add_argument("--device", choices=("cpu", "cuda"))
         item.add_argument("--epochs", type=int)
         item.add_argument("--language-model", help="Existing local Hugging Face checkpoint directory")
+        item.add_argument("--language-dtype", choices=("float32", "float16", "bfloat16", "auto"), default="float32")
+        item.add_argument("--language-prompt-style", choices=("auto", "plain", "chat"), default="auto")
         item.add_argument("--language-mode", choices=("sensor", "classifier", "summary"), default="sensor")
         item.add_argument("--class-names", help="JSON list of class names, in encoded label order")
         if command == "train":
@@ -65,6 +67,15 @@ def main(argv=None):
     profile.add_argument("--methods", nargs="+", choices=METHODS, default=list(METHODS))
     profile.add_argument("--iterations", type=int, default=20)
     profile.add_argument("--warmup", type=int, default=5)
+    matrix = sub.add_parser("matrix-suite", help="Each sensing modality/group with multiple local LLM cores")
+    matrix.add_argument("--spec", required=True)
+    matrix.add_argument("--output", required=True)
+    matrix.add_argument("--mode", choices=("profile", "train"), default="profile")
+    matrix.add_argument("--targets", nargs="+", choices=("cpu", "cuda", "mixed"), default=["cpu", "cuda", "mixed"])
+    matrix.add_argument("--methods", nargs="+", choices=METHODS)
+    matrix.add_argument("--iterations", type=int, default=20)
+    matrix.add_argument("--warmup", type=int, default=5)
+    matrix.add_argument("--dry-run", action="store_true", help="Write all combinations without loading data/models")
     for command in ("evaluate", "benchmark", "infer", "export", "attack"):
         item = sub.add_parser(command)
         item.add_argument("--checkpoint", required=True)
@@ -86,7 +97,11 @@ def main(argv=None):
     if args.threads < 1:
         p.error("--threads must be positive")
     torch.set_num_threads(args.threads)
-    if args.command == "profile-suite":
+    if args.command == "matrix-suite":
+        from .matrix import run_matrix
+        print(run_matrix(args.spec, args.output, args.mode, args.targets, args.methods,
+                         args.iterations, args.warmup, args.dry_run))
+    elif args.command == "profile-suite":
         from .profiling import run_suite
         print(run_suite(args.spec, args.output, args.targets, args.methods, args.iterations, args.warmup))
     elif args.command == "prepare-records":
@@ -118,6 +133,7 @@ def main(argv=None):
             manifest, cfg = args.manifest, Config.load(args.config)
             cfg = replace(cfg, **{n: getattr(args, n) for n in ("device", "epochs") if getattr(args, n) is not None})
             language_options = {"language_checkpoint": args.language_model, "language_mode": args.language_mode,
+                                "language_dtype": args.language_dtype, "language_prompt_style": args.language_prompt_style,
                                 "class_names": json.loads(Path(args.class_names).read_text()) if args.class_names else None}
             if args.command == "train":
                 cfg = replace(cfg, **{n: getattr(args, n) for n in ("method", "seed") if getattr(args, n) is not None})
@@ -197,6 +213,7 @@ def restore_language(saved, model):
     from .language import SensorLanguageModel
     provenance = saved["provenance"]
     lm = SensorLanguageModel.from_local(provenance["language_checkpoint"], model.cfg.hidden, model.cfg.device,
-        mode=provenance["language_mode"], class_names=provenance["class_names"])
+        mode=provenance["language_mode"], class_names=provenance["class_names"],
+        dtype=provenance.get("language_dtype", "float32"), prompt_style=provenance.get("language_prompt_style", "auto"))
     lm.adapter.load_state_dict(saved["language_adapter"])
     return lm

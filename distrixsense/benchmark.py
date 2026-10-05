@@ -1,12 +1,39 @@
 import json
 import platform
 import time
+from typing import Any, TypedDict, cast
 from pathlib import Path
 import numpy as np
 import torch
 from .models import DISCRETE, LOCAL, RAW
 from .temporal_baselines import METHODS as TEMPORAL
 from .transport import roundtrip
+
+
+class TimingStats(TypedDict):
+    median: float
+    p95: float
+
+
+class BenchmarkResult(TypedDict):
+    peripheral_ms: TimingStats
+    serialize_decode_ms: TimingStats
+    central_ms: TimingStats
+    compute_pipeline_ms: TimingStats
+    bytes_per_window: float
+    modeled_link_ms: float
+    modeled_end_to_end_ms: float
+    packet_logit_max_difference: float
+    iterations: int
+    warmup: int
+    device: str
+    host: str
+    torch_threads: int
+    inventory: dict[str, Any]
+    gpu_peak_allocated_bytes: int | None
+    energy_joules: float | None
+    flops: int | None
+    limitations: str
 
 
 def synchronize(device):
@@ -67,7 +94,7 @@ def inventory(model):
 
 
 @torch.no_grad()
-def benchmark(model, batch, iterations=30, warmup=5):
+def benchmark(model, batch, iterations=30, warmup=5) -> BenchmarkResult:
     if batch["labels"].shape[0] != 1 or iterations < 1 or warmup < 0:
         raise ValueError("Benchmark requires batch size one, positive iterations and nonnegative warmup")
     model.eval()
@@ -96,7 +123,7 @@ def benchmark(model, batch, iterations=30, warmup=5):
             phases["central_ms"].append((end-wire_end)*1000)
             phases["compute_pipeline_ms"].append((end-start)*1000)
             sizes.append(sum(len(p)+model.cfg.protocol_overhead for p in packets))
-    stats = {n: {"median": float(np.median(v)), "p95": float(np.quantile(v, .95))} for n, v in phases.items()}
+    stats: dict[str, Any] = {n: {"median": float(np.median(v)), "p95": float(np.quantile(v, .95))} for n, v in phases.items()}
     link_ms = float(np.mean(sizes))*8/(model.cfg.bandwidth_mbps*1000) + model.cfg.link_latency_ms
     stats.update({"bytes_per_window": float(np.mean(sizes)), "modeled_link_ms": link_ms,
                   "modeled_end_to_end_ms": stats["compute_pipeline_ms"]["median"]+link_ms,
@@ -106,7 +133,7 @@ def benchmark(model, batch, iterations=30, warmup=5):
                   "gpu_peak_allocated_bytes": torch.cuda.max_memory_allocated(device) if str(device).startswith("cuda") else None,
                   "energy_joules": None, "flops": None,
                   "limitations": "Timing starts after data loading and normalization. Link latency is modeled, not measured. CPU peak memory, FLOPs and energy require external instrumentation. ImageBind feature extraction cost is external."})
-    return stats
+    return cast(BenchmarkResult, stats)
 
 
 def export_deployment(model, output, stats):

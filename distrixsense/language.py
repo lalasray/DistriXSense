@@ -11,12 +11,15 @@ SYSTEM = "Interpret the supplied sensor evidence. Answer the query concisely. If
 
 
 class SensorLanguageModel(nn.Module):
-    def __init__(self, lm, tokenizer, sensor_dim, mode="sensor", class_names=None):
+    def __init__(self, lm, tokenizer, sensor_dim, mode="sensor", class_names=None, prompt_style="auto"):
         super().__init__()
         if mode not in ("sensor", "classifier", "summary"):
             raise ValueError("Invalid language control")
         self.lm, self.tokenizer, self.mode = lm, tokenizer, mode
         self.class_names = class_names
+        if prompt_style not in ("auto", "plain", "chat"):
+            raise ValueError("prompt_style must be auto, plain or chat")
+        self.prompt_style = prompt_style
         self.lm.requires_grad_(False)
         self.lm.eval()
         width = lm.get_input_embeddings().weight.shape[1]
@@ -29,13 +32,16 @@ class SensorLanguageModel(nn.Module):
             tokenizer.pad_token = tokenizer.eos_token
 
     @classmethod
-    def from_local(cls, checkpoint, sensor_dim, device="cpu", **kwargs):
+    def from_local(cls, checkpoint, sensor_dim, device="cpu", dtype="float32", **kwargs):
         try:
             from transformers import AutoModelForCausalLM, AutoTokenizer
         except ImportError as exc:
             raise RuntimeError("Install the language extra: pip install -e '.[language]'") from exc
+        dtypes = {"float32": torch.float32, "float16": torch.float16, "bfloat16": torch.bfloat16, "auto": "auto"}
+        if dtype not in dtypes:
+            raise ValueError("LM dtype must be float32, float16, bfloat16 or auto")
         tokenizer = AutoTokenizer.from_pretrained(checkpoint, local_files_only=True)
-        lm = AutoModelForCausalLM.from_pretrained(checkpoint, local_files_only=True)
+        lm = AutoModelForCausalLM.from_pretrained(checkpoint, local_files_only=True, torch_dtype=dtypes[dtype])
         return cls(lm, tokenizer, sensor_dim, **kwargs).to(device)
 
     def train(self, mode=True):
@@ -60,10 +66,18 @@ class SensorLanguageModel(nn.Module):
 
     def embeddings(self, output, batch, i, answer=None):
         device = self.adapter[0].weight.device
-        prompt = self.tokenizer(self.prompt(output, batch, i), return_tensors="pt", add_special_tokens=True)["input_ids"].to(device)
+        text = self.prompt(output, batch, i)
+        chat = self.prompt_style == "chat" or (self.prompt_style == "auto" and bool(self.tokenizer.chat_template))
+        if chat:
+            if not self.tokenizer.chat_template:
+                raise ValueError("Chat prompting requires a local tokenizer chat template")
+            prompt = self.tokenizer.apply_chat_template([{"role": "user", "content": text}],
+                add_generation_prompt=True, tokenize=True, return_tensors="pt", enable_thinking=False).to(device)
+        else:
+            prompt = self.tokenizer(text, return_tensors="pt", add_special_tokens=True)["input_ids"].to(device)
         prompt_emb = self.lm.get_input_embeddings()(prompt)
         if self.mode == "sensor":
-            prefix = self.adapter(output["sensor_tokens"][i, output["sensor_mask"][i]])[None]
+            prefix = self.adapter(output["sensor_tokens"][i, output["sensor_mask"][i]].to(self.adapter[0].weight.dtype))[None].to(prompt_emb.dtype)
         else:
             prefix = prompt_emb[:, :0]
         inputs = torch.cat([prefix, prompt_emb], 1)

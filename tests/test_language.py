@@ -11,7 +11,7 @@ from distrixsense.models import DistributedModel
 HAS_TRANSFORMERS = importlib.util.find_spec("transformers") is not None
 
 
-def tiny_local_lm(path):
+def tiny_local_lm(path, width=16):
     from tokenizers import Tokenizer
     from tokenizers.models import WordLevel
     from tokenizers.pre_tokenizers import Whitespace
@@ -22,7 +22,7 @@ def tiny_local_lm(path):
     backend.pre_tokenizer = Whitespace()
     tokenizer = PreTrainedTokenizerFast(tokenizer_object=backend, unk_token="[UNK]", pad_token="[PAD]", eos_token="[EOS]")
     tokenizer.save_pretrained(path)
-    lm = GPT2LMHeadModel(GPT2Config(vocab_size=len(vocab), n_embd=16, n_layer=1, n_head=2,
+    lm = GPT2LMHeadModel(GPT2Config(vocab_size=len(vocab), n_embd=width, n_layer=1, n_head=2,
                                    n_positions=256, bos_token_id=2, eos_token_id=2, pad_token_id=1))
     lm.save_pretrained(path)
 
@@ -91,6 +91,29 @@ class LanguageTests(unittest.TestCase):
         self.assertGreater(report["storage"]["parameters"], 0)
         self.assertGreater(report["prefill_arithmetic"]["counted_flops"], 0)
         self.assertGreater(report["generation_arithmetic"]["counted_flops"], report["prefill_arithmetic"]["counted_flops"])
+
+    def test_bfloat16_core_preserves_float32_adapter_and_gradients(self):
+        from distrixsense.language import SensorLanguageModel
+        language = SensorLanguageModel.from_local(self.lm_path, self.cfg.hidden, dtype="bfloat16")
+        self.assertEqual(language.lm.get_input_embeddings().weight.dtype, torch.bfloat16)
+        self.assertEqual(language.adapter[0].weight.dtype, torch.float32)
+        model = DistributedModel(self.cfg)
+        loss = language.loss(model(self.batch), self.batch)
+        loss.backward()
+        self.assertTrue(torch.isfinite(loss))
+        self.assertGreater(float(language.adapter[0].weight.grad.abs().sum()), 0)
+
+    def test_native_chat_template_uses_the_same_sensor_prefix(self):
+        from distrixsense.language import SensorLanguageModel
+        language = SensorLanguageModel.from_local(self.lm_path, self.cfg.hidden)
+        language.tokenizer.chat_template = "{% for message in messages %}{{ 'What ' + message['content'] }}{% endfor %}{{ ' answer' if add_generation_prompt else '' }}"
+        output = DistributedModel(self.cfg).eval()(self.batch)
+        auto, _ = language.embeddings(output, self.batch, 0)
+        language.prompt_style = "plain"
+        plain, _ = language.embeddings(output, self.batch, 0)
+        self.assertGreater(auto.shape[1], plain.shape[1])
+        count = int(output["sensor_mask"].sum())
+        torch.testing.assert_close(auto[:, :count], plain[:, :count])
 
 
 if __name__ == "__main__":

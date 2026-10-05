@@ -200,7 +200,7 @@ def load_checkpoint(path, device="cpu"):
 
 
 def train(manifest, cfg, output, cache_dir=None, dense_checkpoint=None, language_checkpoint=None,
-          language_mode="sensor", class_names=None):
+          language_mode="sensor", class_names=None, language_dtype="float32", language_prompt_style="auto"):
     cfg.validate()
     seed_everything(cfg.seed)
     root = Path(output)
@@ -220,6 +220,7 @@ def train(manifest, cfg, output, cache_dir=None, dense_checkpoint=None, language
                   "pretrain_fingerprint": shared["fingerprint"], "python": platform.python_version(),
                   "torch": str(torch.__version__), "numpy": str(np.__version__),
                   "language_checkpoint": str(Path(language_checkpoint).resolve()) if language_checkpoint else None,
+                  "language_dtype": language_dtype, "language_prompt_style": language_prompt_style,
                   "language_mode": language_mode, "class_names": class_names,
                   "split_windows": {s: len(ds) for s, ds in datasets.items()}}
     (root / "config.json").write_text(json.dumps(cfg.to_dict(), indent=2))
@@ -232,7 +233,8 @@ def train(manifest, cfg, output, cache_dir=None, dense_checkpoint=None, language
             raise ValueError("Use classifier language mode for local prediction baselines")
         from .language import SensorLanguageModel
         language = SensorLanguageModel.from_local(language_checkpoint, cfg.hidden, cfg.device,
-                                                   mode=language_mode, class_names=class_names)
+                                                   mode=language_mode, class_names=class_names,
+                                                   dtype=language_dtype, prompt_style=language_prompt_style)
     if cfg.method == "posthoc_vq":
         if not dense_checkpoint:
             raise ValueError("posthoc_vq requires --dense-checkpoint from the matched dense run")
@@ -249,6 +251,9 @@ def train(manifest, cfg, output, cache_dir=None, dense_checkpoint=None, language
         if language:
             if "language_adapter" not in dense_saved or dense_saved["provenance"]["language_checkpoint"] != provenance["language_checkpoint"]:
                 raise ValueError("Post-hoc language mode requires the matching dense language adapter")
+            if any(dense_saved["provenance"].get(k, default) != provenance[k] for k, default in
+                   (("language_dtype", "float32"), ("language_prompt_style", "auto"), ("language_mode", "sensor"))):
+                raise ValueError("Post-hoc language dtype and prompt mode must match the dense run")
             language.adapter.load_state_dict(dense_saved["language_adapter"])
         save_checkpoint(root / "best.pt", model, shared["stats"], provenance, language)
     else:
