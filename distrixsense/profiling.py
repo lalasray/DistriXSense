@@ -9,6 +9,7 @@ import math
 import platform
 import resource
 import time
+import uuid
 from dataclasses import replace
 from pathlib import Path
 import numpy as np
@@ -84,8 +85,10 @@ def arithmetic(fn):
     # Fused inference kernels can conceal operations from dispatch accounting.
     fastpath = torch.backends.mha.get_fastpath_enabled()
     mkldnn = torch.backends.mkldnn.enabled
+    cudnn = torch.backends.cudnn.enabled
     torch.backends.mha.set_fastpath_enabled(False)
     torch.backends.mkldnn.enabled = False
+    torch.backends.cudnn.enabled = False
     try:
         with torch.no_grad(), OperationCounter() as counter:
             fn()
@@ -96,6 +99,7 @@ def arithmetic(fn):
     finally:
         torch.backends.mha.set_fastpath_enabled(fastpath)
         torch.backends.mkldnn.enabled = mkldnn
+        torch.backends.cudnn.enabled = cudnn
 
 
 def measure(fn, device, iterations, warmup):
@@ -320,6 +324,7 @@ def profile_language(model, batch, spec, base, device, iterations, warmup, saved
                   "generation_arithmetic": arithmetic(generate_fn)}
         stages["generated_token_ids"] = generated["ids"][0].detach().cpu().tolist()
         stages["generated_tokens"] = len(stages["generated_token_ids"])
+        stages["language_measurement_id"] = uuid.uuid4().hex
         if stages["generated_tokens"] != tokens:
             raise RuntimeError("LM failed fixed-length generation validation")
         if shape_cache is not None:
@@ -352,11 +357,13 @@ def synthetic_batch(cfg, inputs, window):
     return {"streams": streams, "labels": torch.zeros(1, dtype=torch.long)}
 
 
-def run_suite(spec_path, output, targets=("cpu", "cuda", "mixed"), methods=METHODS, iterations=20, warmup=5):
+def run_suite(spec_path, output, targets=("cpu", "cuda", "mixed"), methods=METHODS, iterations=20, warmup=5, resume=False):
     path, root = Path(spec_path), Path(output)
     spec = json.loads(path.read_text())
-    if root.exists() and any(root.iterdir()):
+    if root.exists() and any(root.iterdir()) and not resume:
         raise ValueError("Choose an empty profiling output directory")
+    if resume and (root/"input_spec.json").exists() and json.loads((root/"input_spec.json").read_text()) != spec:
+        raise ValueError("Cannot resume with a different input specification")
     root.mkdir(parents=True, exist_ok=True)
     (root/"input_spec.json").write_text(json.dumps(spec, indent=2))
     results, skipped = [], []
@@ -372,6 +379,14 @@ def run_suite(spec_path, output, targets=("cpu", "cuda", "mixed"), methods=METHO
                                 "reason": "CUDA-enabled PyTorch and accessible GPU required"})
                 continue
             for method in methods:
+                filename = f"{entry.get('scenario_id', entry['dataset']).replace('+','plus')}-{target}-{method}.json"
+                if resume and (root/filename).exists():
+                    previous = json.loads((root/filename).read_text())
+                    timing = previous["core"]["compute"]
+                    if timing["iterations"] != iterations or timing["warmup"] != warmup or previous['host']['torch'] != torch.__version__:
+                        raise ValueError("Resume requires matching timing settings and PyTorch build")
+                    results.append(previous)
+                    continue
                 if method in entry.get("excluded_methods", []):
                     skipped.append({"dataset": entry["dataset"], "scenario_id": entry.get("scenario_id"),
                                     "target": target, "method": method, "status": "unsupported_modality_subset"})

@@ -77,6 +77,25 @@ class ProfilingTests(unittest.TestCase):
                 run_suite(path/"spec.json", path/"out", ("cuda", "mixed"), ("distrixsense",), 1, 0)
             self.assertEqual(len(json.loads((path/"out/availability.json").read_text())), 2)
 
+    def test_resume_preserves_completed_measurements_and_rejects_setting_changes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp)
+            spec = {"datasets": [{"dataset": "nymeria", "config": self.cfg.to_dict(),
+                                   "inputs": self.inputs, "window_seconds": 3, "stride_seconds": 1.5}]}
+            (path/"spec.json").write_text(json.dumps(spec))
+            run_suite(path/"spec.json", path/"out", ("cpu",), ("distrixsense",), 1, 0)
+            report = path/"out/nymeria-cpu-distrixsense.json"
+            original = report.read_bytes()
+            with patch("distrixsense.profiling.profile_model", side_effect=AssertionError("Must not rerun")):
+                run_suite(path/"spec.json", path/"out", ("cpu",), ("distrixsense",), 1, 0, resume=True)
+            self.assertEqual(report.read_bytes(), original)
+            with self.assertRaisesRegex(ValueError, "matching timing"):
+                run_suite(path/"spec.json", path/"out", ("cpu",), ("distrixsense",), 2, 0, resume=True)
+            spec['datasets'][0]['window_seconds'] = 4
+            (path/"spec.json").write_text(json.dumps(spec))
+            with self.assertRaisesRegex(ValueError, "different input"):
+                run_suite(path/"spec.json", path/"out", ("cpu",), ("distrixsense",), 1, 0, resume=True)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -14,8 +14,6 @@ better than any baseline on recognition or question answering.
 for core in gemma3_1b qwen3_4b qwen3_8b; do
   .venv/bin/python tools/run_published_profiles.py --core "$core" --output "runs/published-dummy/$core"
 done
-.venv/bin/python tools/summarize_published_profiles.py
-.venv/bin/python tools/validate_published_results.py
 ```
 
 The downloader pins model revisions, records file lengths and remote LFS hashes in
@@ -109,3 +107,40 @@ counted GFLOP/s. The latter divides the registered FLOP subtotal by elapsed time
 it is not peak device FLOPS, and the pipeline inverse is not measured concurrent
 or saturated-server throughput. Full parallel-edge/network-plus-core latency is
 available in `full_parallel_network_estimate_ms`.
+
+## GPU environment on this workstation
+
+The initial `nvidia-smi` failure was due to sandbox device restrictions. Outside
+the sandbox, the RTX PRO6000 Blackwell96GB and driver595.91.07 work correctly.
+`.venv-gpu` contains PyTorch2.14.1+cu130 and Transformers4.57.6; `.venv` retains
+PyTorch2.14.1+cpu for CPU measurements. No system driver changes were needed.
+Installation follows the [official PyTorch CUDA instructions](https://pytorch.org/get-started/locally/).
+
+```bash
+.venv/bin/python -m venv .venv-gpu --system-site-packages
+.venv-gpu/bin/python -m pip install torch==2.14.1+cu130 --index-url https://download.pytorch.org/whl/cu130
+.venv-gpu/bin/python -m pip install -e '.[language]' transformers==4.57.6
+.venv-gpu/bin/python tools/check_gpu.py
+.venv-gpu/bin/python tools/run_gpu_profiles.py
+```
+
+GPU commands must have device access (outside the Codex sandbox on this host).
+The GPU driver script waits for the three CPU suites, runs the regression suite,
+then runs each core on GPU and mixed CPU-edge/GPU-core configurations. It writes
+separate `*_gpu` directories and combines all three targets into the final report:
+7,749 combinations in total. `check_gpu.py` is functional validation only; its
+single-iteration timings are not the final benchmark.
+
+Interrupted suites support `--resume`, preserving completed reports and rejecting
+changed input specifications, timing settings or PyTorch builds. A resumed process
+may remeasure a previously encountered core shape. `language_measurement_id`
+identifies a particular measurement and its reused copies, whereas
+`language_shape_id` identifies the computational shape. Initial CPU-only runtime
+GPU skips remain historical records in availability.json, not a statement that
+the GPU is unavailable after installing the CUDA environment.
+
+CUDA edge and core stages are measured sequentially on the same workstation GPU;
+per-node accounting does not imply multiple physical GPUs were deployed. Parallel
+network/device schedules are projections, not observed simultaneous distributed
+execution. Environment package snapshots and CPU/GPU hardware records are stored
+beside the reports. The resumed CPU and full GPU timing suites run sequentially.

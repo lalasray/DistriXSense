@@ -15,6 +15,8 @@ def main():
     parser.add_argument('--iterations',type=int,default=3)
     parser.add_argument('--warmup',type=int,default=1)
     parser.add_argument('--threads',type=int,default=8)
+    parser.add_argument('--targets',nargs='+',choices=['cpu','cuda','mixed'],default=['cpu','cuda','mixed'])
+    parser.add_argument('--resume',action='store_true')
     parser.add_argument('--core',choices=['gemma3_1b','qwen3_4b','qwen3_8b'])
     args=parser.parse_args()
     torch.set_num_threads(args.threads)
@@ -29,7 +31,7 @@ def main():
     args.output.parent.mkdir(parents=True,exist_ok=True)
     path=args.output.parent/(args.output.name+'_plan.json')
     path.write_text(json.dumps(plan,indent=2))
-    run_suite(path,args.output,('cpu','cuda','mixed'),plan['methods'],args.iterations,args.warmup)
+    run_suite(path,args.output,args.targets,plan['methods'],args.iterations,args.warmup,resume=args.resume)
 
 
 if __name__=='__main__':

@@ -1,5 +1,6 @@
 *.zip
 /.venv
+/.venv-gpu
 *.log
 /checkpoints
 /wandb

@@ -13,16 +13,15 @@ OUT=ROOT/'runs/published-dummy'
 def main():
     spec,_=build()
     rows=list(csv.DictReader((OUT/'summary.csv').open()))
-    expected={(d['dataset'],group,c['name'],m) for d in spec['datasets']
-              for group in d['modality_sets'] for c in spec['cores'] for m in spec['methods']}
-    actual=[(r['dataset'],r['modality_set'],r['core_name'],r['method']) for r in rows]
+    expected={(d['dataset'],group,c['name'],m,target) for d in spec['datasets']
+              for group in d['modality_sets'] for c in spec['cores'] for m in spec['methods'] for target in ('cpu','cuda','mixed')}
+    actual=[(r['dataset'],r['modality_set'],r['core_name'],r['method'],r['target']) for r in rows]
     assert len(actual)==len(set(actual)) and set(actual)==expected
     measured={}
     reuse=[]
     max_difference=0.0
     for row in rows:
-        name=f"{row['scenario_id'].replace('+','plus')}-cpu-{row['method']}.json"
-        r=json.loads((OUT/row['core_name']/name).read_text())
+        r=json.loads(Path(row['report_path']).read_text())
         lm=r['core']['language']
         assert math.isfinite(r['packet_logit_max_difference']) and r['packet_logit_max_difference']<1e-5
         max_difference=max(max_difference,r['packet_logit_max_difference'])
@@ -32,20 +31,21 @@ def main():
         assert r['total_deployed']['parameters']==r['core']['storage']['parameters']+sum(e['storage']['parameters'] for e in r['edges'].values())
         assert r['total_deployed_with_language']['parameters']==r['total_deployed']['parameters']+lm['storage']['parameters']
         assert r['total_deployed']['wire_bytes']==sum(e['network']['wire_bytes'] for e in r['edges'].values())
-        k=lm['language_shape_id']
+        k=lm.get('language_measurement_id',lm['language_shape_id'])
         if lm['language_measurement']=='measured_this_case':
             assert k not in measured
             measured[k]=lm
         else:
             reuse.append(lm)
     for lm in reuse:
-        reference=measured[lm['language_shape_id']]
+        reference=measured[lm.get('language_measurement_id',lm['language_shape_id'])]
         assert lm['prefill_and_fixed_decode']==reference['prefill_and_fixed_decode']
         assert lm['generation_arithmetic']==reference['generation_arithmetic']
-    result=dict(combinations=len(rows),unique_measured_core_shapes=len(measured),shape_reused_combinations=len(reuse),
+    result=dict(combinations=len(rows),core_shape_measurements=len(measured),
+        unique_core_shapes=len({r['language_shape_id'] for r in rows}),shape_reused_combinations=len(reuse),
         packet_max_logit_difference=max_difference,coverage='complete',accounting_invariants='passed',
         by_core=dict(Counter(r['core_name'] for r in rows)),task_accuracy_tested=False,
-        datasets_downloaded=False,gpu_measured=False)
+        datasets_downloaded=False,gpu_measured=True,by_target=dict(Counter(r['target'] for r in rows)))
     (OUT/'validation.json').write_text(json.dumps(result,indent=2)+'\n')
     print(json.dumps(result))
 
