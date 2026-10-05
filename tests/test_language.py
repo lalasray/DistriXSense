@@ -83,6 +83,15 @@ class LanguageTests(unittest.TestCase):
         self.assertTrue(all(not p.requires_grad for p in restored.lm.parameters()))
         self.assertTrue((self.root/"run/answers.jsonl").exists())
 
+    def test_language_deployment_cost_profile(self):
+        from distrixsense.profiling import profile_language
+        report = profile_language(DistributedModel(self.cfg).eval(), self.batch,
+                                  {"checkpoint": "lm", "decode_tokens": 2}, self.root, "cpu", 1, 0)
+        self.assertEqual(report["decode_tokens"], 2)
+        self.assertGreater(report["storage"]["parameters"], 0)
+        self.assertGreater(report["prefill_arithmetic"]["counted_flops"], 0)
+        self.assertGreater(report["generation_arithmetic"]["counted_flops"], report["prefill_arithmetic"]["counted_flops"])
+
 
 if __name__ == "__main__":
     unittest.main()

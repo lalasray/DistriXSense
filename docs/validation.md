@@ -9,7 +9,7 @@ those versions and CUDA have not been separately exercised here.
 .venv/bin/python -m distrixsense smoke --output runs/validation
 ```
 
-All 37 tests passed. The tests cover participant leakage rejection, training-only
+All 43 tests passed. The tests cover participant leakage rejection, training-only
 normalization, annotation-column exclusion, asynchronous recording preparation,
 timestamp interpolation, padding invariance, all-missing sensors, frozen encoders,
 selector/bank gradients, reserved-bank enforcement, packet corruption and bit widths,

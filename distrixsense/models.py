@@ -171,6 +171,8 @@ class DistributedModel(nn.Module):
     def features(self, streams):
         features, times, availability, targets = {}, {}, {}, {}
         for n in self.names:
+            if n not in streams:
+                continue
             x, t, present = self.resamplers[n](streams[n])
             features[n] = self.encoders[n](x)
             times[n], availability[n], targets[n] = t, present, x
@@ -203,7 +205,7 @@ class DistributedModel(nn.Module):
         commitment, usage, reconstruction = [], [], []
         aux["assignments"] = {}
         aux["local_logits"] = {}
-        for n in self.names:
+        for n in features:
             h, t, p = features[n], times[n], present[n]
             pooled_for_alignment[n] = (h.mean(1), p)
             if cfg.method in LOCAL:

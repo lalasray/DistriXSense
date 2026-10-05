@@ -66,6 +66,10 @@ explain the controls and published sources. The default suite now also includes
 
 ## Evaluate and deploy
 
+Use `profile-suite` for model size, per-edge/core FLOPs and timings, packet volume
+and modeled transfer costs. The [profiling guide](docs/profiling.md) explains CPU,
+GPU and mixed runs, local checkpoints and the illustrative three-dataset spec.
+
 Each run writes `best.pt`, `config.json`, `norm_stats.json`, `metrics.json`,
 `predictions.jsonl`, and training history when applicable. The suite creates
 `summary.csv`, `summary.md` and `comparisons.json` with participant-level paired

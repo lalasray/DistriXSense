@@ -58,6 +58,13 @@ def main(argv=None):
             item.add_argument("--seeds", nargs="+", type=int, default=[0, 1, 2])
     smoke = sub.add_parser("smoke")
     smoke.add_argument("--output", default="runs/smoke")
+    profile = sub.add_parser("profile-suite", help="Per-edge/core costs from explicit shapes or local test windows")
+    profile.add_argument("--spec", required=True)
+    profile.add_argument("--output", required=True)
+    profile.add_argument("--targets", nargs="+", choices=("cpu", "cuda", "mixed"), default=["cpu", "cuda", "mixed"])
+    profile.add_argument("--methods", nargs="+", choices=METHODS, default=list(METHODS))
+    profile.add_argument("--iterations", type=int, default=20)
+    profile.add_argument("--warmup", type=int, default=5)
     for command in ("evaluate", "benchmark", "infer", "export", "attack"):
         item = sub.add_parser(command)
         item.add_argument("--checkpoint", required=True)
@@ -79,7 +86,10 @@ def main(argv=None):
     if args.threads < 1:
         p.error("--threads must be positive")
     torch.set_num_threads(args.threads)
-    if args.command == "prepare-records":
+    if args.command == "profile-suite":
+        from .profiling import run_suite
+        print(run_suite(args.spec, args.output, args.targets, args.methods, args.iterations, args.warmup))
+    elif args.command == "prepare-records":
         from .prepare import prepare_records
         policies = json.loads(Path(args.feature_policies).read_text()) if args.feature_policies else None
         print(prepare_records(args.records, args.output, args.dataset, args.window_seconds, args.stride_seconds,
