@@ -206,6 +206,39 @@ class DatasetTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             seconds([1, 2], {"clock_scale": -1})
 
+    def test_local_image_depth_and_video_decoding(self):
+        try:
+            import av
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Optional media dependencies are not installed")
+        depth = np.arange(16, dtype=np.uint16).reshape(4, 4)*100
+        Image.fromarray(depth).save(self.root/"depth.png")
+        result = read_stream(self.root, {"format": "images", "files": ["depth.png"], "sample_rate": 1}, "image", 0, 1)
+        np.testing.assert_array_equal(result["values"][0, 0], depth)
+        with av.open(str(self.root/"video.mkv"), "w") as container:
+            stream = container.add_stream("ffv1", rate=4)
+            stream.width, stream.height, stream.pix_fmt = 16, 16, "yuv420p"
+            for i in range(4):
+                frame = av.VideoFrame.from_ndarray(np.full((16, 16, 3), i*40, dtype=np.uint8), format="rgb24")
+                for packet in stream.encode(frame):
+                    container.mux(packet)
+            for packet in stream.encode():
+                container.mux(packet)
+        result = read_stream(self.root, {"format": "video", "path": "video.mkv"}, "image", .25, .75)
+        self.assertEqual(result["values"].shape, (2, 3, 16, 16))
+        np.testing.assert_allclose(result["timestamps"], [.25, .5])
+
+    def test_openpose_missing_detections_and_csv_time_exclusion(self):
+        for i, people in enumerate(([{"pose_keypoints_2d": list(range(75))}], [])):
+            (self.root/f"pose{i}.json").write_text(json.dumps({"people": people}))
+        result = read_stream(self.root, {"format": "openpose", "files": ["pose0.json", "pose1.json"], "sample_rate": 2}, "pose", 0, 1)
+        self.assertEqual(result["values"].shape, (2, 25, 3))
+        self.assertTrue(np.isnan(result["values"][1]).all())
+        (self.root/"sensor.csv").write_text("time,value\n0,1\n1,2\n")
+        with self.assertRaisesRegex(ValueError, "Timestamp column"):
+            read_stream(self.root, {"format": "csv", "path": "sensor.csv", "header": True, "columns": ["time", "value"], "time_column": "time"}, "signal", 0, 2)
+
     def test_explicit_device_to_timecode_mapping(self):
         class Provider:
             def convert_from_device_time_to_timecode_ns(self, value):

@@ -20,31 +20,97 @@ Optional `events` in a row contains `times` and encoded `labels` lists, using `-
 for ignored frames. The temporal head receives timestamp-nearest valid frame targets.
 Without event targets this head is untrained and must not be evaluated as an event detector.
 
-## Recording adapters
+## Local recording loaders
 
-OPPORTUNITY++ and OpenMarcie adapters accept exported numeric sensor arrays or
-frozen-encoder features and synchronized annotations:
+Only `opportunity++`, `openmarcie` and `nymeria` are accepted. The classes
+`OpportunityPlusPlusDataset`, `OpenMarcieDataset` and `NymeriaDataset` use the same
+explicit JSONL recording schema. Paths resolve relative to the manifest.
 
 ```json
-{"participant":"worker01","split":"train","streams":{"imu":{"values":"worker01/imu.npy","timestamps":"worker01/imu_seconds.npy"},"vision":{"values":"worker01/video_features.npy","timestamps":"worker01/video_seconds.npy"}},"annotations":[{"start":0.0,"end":10.0,"label":"tightening screw","query":"What tool is used?","answer":"A screwdriver."}]}
+{"dataset":"openmarcie","recording":"session01","participant":"worker01","split":"train","start":0,"end":10,"streams":{"wrist_imu":{"modality":"imu","device":"wrist","format":"array","path":"imu.npz","key":"values","timestamp_key":"timestamps","time_unit":"ns","time_origin":1000000000}},"annotations":[{"start":0,"end":10,"track":"activity","label":"tightening screw"}]}
 ```
 
-This is an illustrative schema, not a real dataset annotation. All times use a
-common recording clock in seconds, dimensions are stable, and actual annotations
-determine labels and queries. Raw camera calibration, video/audio transforms and
-LiDAR decoding must be supplied explicitly before this adapter.
+This is an illustrative schema. Set real clocks and labels yourself; rates, camera
+calibration, coordinate transformations and recording lengths are never guessed.
+See the three `*.recordings.jsonl.example` files under `configs/datasets` for
+modality declarations. Repeated devices/cameras use independent stream names.
+Declare every participant in multi-person recordings through `participants`.
+Participant and source-file reuse across splits is rejected before windowing.
+
+```python
+from distrixsense.datasets import NymeriaDataset, multimodal_collate
+
+dataset = NymeriaDataset("recordings.jsonl", split="train",
+                        window_seconds=3, stride_seconds=1.5)
+sample = dataset[0]
+batch = multimodal_collate([sample], modalities=dataset.modalities)
+```
+
+Images retain T,C,H,W axes; poses retain joint/coordinate axes; audio retains all
+channels; point clouds retain variable point counts. Collation supplies temporal,
+finite-value, availability and point masks. Differing image resolutions need an
+explicit transform. Missing streams are omitted or declared `available: false`.
+All overlapping annotations, their tracks and original intervals are preserved.
+Text defaults to target annotations; text as evidence needs explicit `role: input`.
+
+| Dataset | Supported modality families |
+| --- | --- |
+| OPPORTUNITY++ | Body/shoe/object inertial sensors, orientation, UWB, ambient accelerometers/switches, RGB video, BODY25 poses, annotation/subtitle tracks |
+| OpenMarcie | Inertial/magnetic/environmental/spectral/thermal sensors, ego/exo RGB-D, LiDAR depth/points, multichannel audio, pose/object/position tracks and annotations |
+| Nymeria | Available Aria camera/inertial/magnetic/barometric/audio streams per device, gaze, trajectories, scene points, XSens body motion/contact streams and narration |
+
+Availability depends on the actual recording/release. Catalog entries do not
+invent absent streams. Additional channels use an explicit `kind` and modality.
+
+### Local formats and clocks
+
+- `array`: NPY or named NPZ arrays, explicit timestamps or sample rate.
+- `csv` / `table`: explicit feature columns and time column; named columns with
+  `header: true`. Set `integer_timestamps: true` for headered epoch-nanosecond CSV.
+- `opportunity_dat`: sensor columns 1–242 only (zero-based); labels cannot enter
+  features. `opportunity_sensor_streams` in `datasets.native` reads column metadata.
+- `images`, `video`, `audio`: local image frames, timestamped video, and audio
+  slices. Install `.[media]` for Pillow/PyAV/soundfile.
+- `openpose`: JSON frames, explicit person index, missing detections kept invalid.
+- `point_frames` / `static_points`: NPY, numeric XYZ/CSV, or PLY/PCD with the
+  optional `.[pointcloud]` dependency. Static maps are marked as static context.
+- `vrs`: native Aria through `.[aria]`, selecting a stream label/ID and time domain.
+  Use common TIME_CODE for synchronized devices. SDK availability depends on Python.
+- XSens: `nymeria_xsens_streams` exposes timestamp-aligned numeric arrays from
+  `body/xdata.npz`, preserving structured coordinates and excluding static metadata.
+- Annotation files: JSON, JSONL, CSV with field mapping, or SRT.
+
+Timestamps use `time_unit` (s/ms/us/ns), `time_origin` in native units,
+`clock_scale` and `offset_seconds`. Integer origins are subtracted before float
+conversion. Windows are half-open and returned times are relative to window start.
+For device-clock arrays/tables, `clock_vrs` plus `timecode_origin_ns` enables Aria
+device-to-timecode conversion. Coordinate frames and calibration are retained as
+metadata; XSens and Aria spatial frames are not automatically aligned.
+
+### Export into the current model
 
 ```bash
 python -m distrixsense prepare-records \
-  --records recordings.jsonl --dataset openmarcie \
+  --records recordings.jsonl --dataset nymeria \
   --window-seconds 3 --stride-seconds 1.5 \
-  --output dataset/prepared/openmarcie
+  --feature-policies configs/datasets/feature_policies.json \
+  --target-track activity --output dataset/prepared/nymeria
 ```
 
-Use `--dataset opportunity++` for that extension. Each retained window must be fully
-covered by exactly one annotation. Ambiguous/concurrent windows are skipped.
-The generated configuration contains actual dimensions and training-derived labels.
-Concurrent-action experiments require a separately specified multilabel protocol.
+All input streams must produce numeric T,C features: signal/features can pass
+through; raw media require explicit spatial pooling, pose flattening, audio
+log-spectrum or point-moment policies, or your own precomputed encoder features.
+The provided policies do not claim pretrained semantic representations.
+Strict target selection requires one activity covering the entire window; optional
+`--target-policy majority` selects by total overlap duration. Concurrent annotations
+remain in exported metadata. Train/val/test partitions are required, and labels
+derive from training only. The raw loader itself does not discard unlabelled or
+concurrent windows.
+
+Official dataset references: [OPPORTUNITY++](https://www.frontiersin.org/journals/computer-science/articles/10.3389/fcomp.2021.792065/full),
+[OpenMarcie](https://github.com/HymalaiDFKI/OpenMarcie),
+[original Nymeria release](https://github.com/facebookresearch/nymeria_dataset/tree/nymeria_dataset_legacy).
+The upstream Nymeria branch name refers to that release, not retained local legacy code.
 
 ## ImageBind
 
@@ -93,6 +159,5 @@ Sensor mode adds projected sensor embeddings before the prompt. Classifier mode
 adds a predicted window activity and confidence; summary mode adds measured normalized
 means, standard deviations and durations. Optional `--class-names` names encoded
 predictions; without it classifier mode uses numeric IDs. Answers are targets only,
-never inference inputs. Oversized contexts fail explicitly. Original OPPORTUNITY
-has no native QA supervision, so a QA-free manifest is rejected for language training.
+never inference inputs. Oversized contexts fail explicitly. A QA-free manifest is rejected for language training.
 Tiny random local language models are integration fixtures, not useful reasoners.

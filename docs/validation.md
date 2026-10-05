@@ -9,7 +9,7 @@ those versions and CUDA have not been separately exercised here.
 .venv/bin/python -m distrixsense smoke --output runs/validation
 ```
 
-All 21 tests passed. The tests cover participant leakage rejection, training-only
+All 33 tests passed. The tests cover participant leakage rejection, training-only
 normalization, annotation-column exclusion, asynchronous recording preparation,
 timestamp interpolation, padding invariance, all-missing sensors, frozen encoders,
 selector/bank gradients, reserved-bank enforcement, packet corruption and bit widths,
@@ -33,8 +33,14 @@ attack. Generated local artifacts are under `runs/learning-check`; they are igno
 by Git and are not experimental paper results. Suite artifacts are under
 `runs/validation`, including per-method packet timings and a summary table.
 
-Python compilation and `git diff --check` passed. Original OPPORTUNITY preparation
-was validated against constructed files with the official 250-column layout. Full
-real-data training, official ImageBind pretrained inference, useful local-LM QA,
-hardware deployment, measured network latency and energy remain empirical validation
-steps requiring their actual data, weights or instruments.
+Dataset tests cover every catalog modality across OPPORTUNITY++, OpenMarcie and
+Nymeria with generated local fixtures, including native image/depth and video
+decoding, stereo audio slicing, OpenPose missing detections, variable point counts,
+XSens NPZ arrays, integer timestamp precision, annotation preservation, split
+leakage guards and feature export into the model. Device-to-timecode conversion is
+mocked; native Aria VRS and Open3D PLY/PCD decoding have not been exercised here.
+
+No datasets were downloaded. No real-data performance or release-wide compatibility
+is claimed from these fixtures. Full real-data training, native Aria SDK validation,
+official ImageBind pretrained inference, useful local-LM QA, hardware deployment,
+measured network latency and energy require the actual data, weights or instruments.

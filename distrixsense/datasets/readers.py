@@ -116,6 +116,10 @@ def canonical(values, kind, spec):
 
 def numeric_table(root, spec):
     path = local_path(root, spec["path"])
+    if "columns" not in spec or "time_column" not in spec:
+        raise ValueError("Table sources require explicit columns and time_column")
+    if spec["time_column"] in spec["columns"]:
+        raise ValueError("Timestamp column cannot be a sensor feature")
     if spec.get("header", False):
         handle = gzip.open(path, "rt") if path.suffix == ".gz" else path.open()
         with handle:

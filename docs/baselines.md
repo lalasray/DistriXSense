@@ -63,8 +63,9 @@ preprocessing. Switch/UWB/quaternion/LiDAR streams are not automatically support
 Record feature-extraction costs separately; exported-feature timings measure fusion.
 Real pretrained ImageBind weights and the optional package are not included.
 
-Dataset sources: [original OPPORTUNITY](https://archive.ics.uci.edu/dataset/226/opportunity%2Bactivity%2Brecognition),
-[OPPORTUNITY++](https://www.frontiersin.org/journals/computer-science/articles/10.3389/fcomp.2021.792065/full),
+Dataset sources: [OPPORTUNITY++](https://www.frontiersin.org/journals/computer-science/articles/10.3389/fcomp.2021.792065/full),
 [OpenMarcie](https://github.com/HymalaiDFKI/OpenMarcie).
 Published-model reproduction, hardware energy, semantic QA assessment and privacy
 claims require experiments on real datasets and deployment hardware.
+
+Nymeria source: https://github.com/facebookresearch/nymeria_dataset/tree/nymeria_dataset_legacy
