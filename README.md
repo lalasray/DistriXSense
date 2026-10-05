@@ -5,9 +5,10 @@ timestamp-aware learnable resampling, pretrained frozen sensor encoders, periphe
 categorical selectors, a central modality-reserved embedding bank, temporal fusion,
 and optional querying with a frozen local language model.
 
-Manuscript placeholders are explicit configurable defaults. Original OPPORTUNITY
-is the first experiment; OPPORTUNITY++ and OpenMarcie use a timestamped recording
-adapter. Original VQ-VAE code is preserved: [legacy instructions](docs/legacy_vqvae.md).
+The data layer targets **OPPORTUNITY++, OpenMarcie and Nymeria**. It reads local
+recordings with explicit manifests and preserves native modality shapes, clocks,
+device locations, missing data and annotation tracks. Dataset downloaders and the
+old VQ-VAE code have been removed.
 
 ## Install and verify
 
@@ -24,37 +25,43 @@ Install a CUDA-enabled PyTorch build appropriate to your machine before selectin
 synthetic fixtures and verifies actual binary-packet inference. These scores test
 software, not scientific superiority. Completed output directories cannot be reused.
 
-## Original OPPORTUNITY
+## Local datasets
+
+Start from a recording template in [configs/datasets](configs/datasets), replacing
+placeholder paths, clocks, recording spans and participants with your local files.
+Templates describe the schema; they are not release-specific file inventories.
+All declared available input streams are loaded by default.
 
 ```bash
-python -m distrixsense download-opportunity --output dataset/Opportunity
-python -m distrixsense prepare-opportunity \
-  --root dataset/Opportunity --output dataset/prepared/opportunity \
-  --task gestures --window 96 --stride 48 \
-  --train-people S1 S2 --val-people S3 --test-people S4
+pip install -e '.[media]'  # image/video/audio file codecs
+python -m distrixsense inspect-dataset \
+  --records recordings.jsonl --dataset openmarcie
+python -m distrixsense prepare-records \
+  --records recordings.jsonl --dataset openmarcie \
+  --feature-policies configs/datasets/feature_policies.json \
+  --target-track activity --output dataset/prepared/openmarcie
 python -m distrixsense suite \
-  --manifest dataset/prepared/opportunity/manifest.jsonl \
-  --config dataset/prepared/opportunity/config.json \
-  --output runs/opportunity --seeds 0 1 2 --device cpu
+  --manifest dataset/prepared/openmarcie/manifest.jsonl \
+  --config dataset/prepared/openmarcie/config.json \
+  --output runs/openmarcie --seeds 0 1 2 --device cpu
 ```
 
-The UCI archive is about 292 MB. Preparation groups channels from `column_names.txt`,
-or accepts `--group-map` with **raw-file, zero-based** indices. Without metadata,
-documented body-worn/object/ambient families are used. Only raw indices 1–242 are
-sensor features: index 0 is time and 243–249 are annotations. Use the generated
-config with actual dimensions and training label vocabulary; `configs/opportunity.json`
-is an illustrative coarse-family configuration.
+Use `--dataset opportunity++` or `--dataset nymeria` for the other datasets.
+The raw PyTorch loaders support numeric sensors, RGB/depth/thermal images and video,
+audio, structured poses, point clouds and annotation/text tracks. Aria VRS requires
+the optional `aria` extra in a compatible Python environment; PLY/PCD uses
+`pointcloud`. Nothing downloads dataset files.
 
-Targets default to majority-vote gestures including null, with actual frame labels
-supervising the temporal head. Options include `--exclude-null`, `--task locomotion`,
-`--task activity`, and debug-only `--max-windows N` per participant. Partitions precede
-windowing; windows never cross recordings. Statistics, encoder pretraining and
-k-means use training data only. These participant-independent splits differ from
-the published challenge protocol; published scores are not directly comparable.
+The existing model consumes numeric feature sequences. Export requires explicit
+feature policies for raw media, or locally computed encoder features. The supplied
+pooling/spectral/statistical policies are integration baselines, not pretrained
+multimodal encoders. The raw loader retains concurrent annotations; the single-label
+export defaults to excluding ambiguous windows. See the
+[data interface](docs/data_and_language.md) for native formats and synchronization.
 
 Use `train --method METHOD --seed 0` for one method. Post-hoc VQ additionally requires
 `--dense-checkpoint` from a matched dense run. [Baseline definitions](docs/baselines.md)
-explain the controls, published sources, and which implementations are adaptations.
+explain the controls and published sources.
 
 ## Evaluate and deploy
 
@@ -62,30 +69,30 @@ Each run writes `best.pt`, `config.json`, `norm_stats.json`, `metrics.json`,
 `predictions.jsonl`, and training history when applicable. The suite creates
 `summary.csv`, `summary.md` and `comparisons.json` with participant-level paired
 tests and Holm correction. Macro F1 includes all configured classes. A bootstrap
-interval requires at least two test participants; with S4 alone it is null. For
+interval requires at least two test participants; with one test participant it is null. For
 broader evaluation, prepare explicit participant folds. Overlapping windows and
 random seeds are not independent participants.
 
 ```bash
 python -m distrixsense infer \
-  --checkpoint runs/opportunity/distrixsense/seed-0/best.pt \
-  --manifest dataset/prepared/opportunity/manifest.jsonl \
-  --index 0 --output runs/opportunity/inference.json
+  --checkpoint runs/openmarcie/distrixsense/seed-0/best.pt \
+  --manifest dataset/prepared/openmarcie/manifest.jsonl \
+  --index 0 --output runs/openmarcie/inference.json
 python -m distrixsense benchmark \
-  --checkpoint runs/opportunity/distrixsense/seed-0/best.pt \
-  --manifest dataset/prepared/opportunity/manifest.jsonl \
-  --iterations 100 --output runs/opportunity/timing.json
+  --checkpoint runs/openmarcie/distrixsense/seed-0/best.pt \
+  --manifest dataset/prepared/openmarcie/manifest.jsonl \
+  --iterations 100 --output runs/openmarcie/timing.json
 python -m distrixsense export \
-  --checkpoint runs/opportunity/distrixsense/seed-0/best.pt \
-  --output runs/opportunity/deployment
+  --checkpoint runs/openmarcie/distrixsense/seed-0/best.pt \
+  --output runs/openmarcie/deployment
 python -m distrixsense evaluate \
-  --checkpoint runs/opportunity/distrixsense/seed-0/best.pt \
-  --manifest dataset/prepared/opportunity/manifest.jsonl \
-  --drop-modalities ambient --output runs/opportunity/missing-ambient.json
+  --checkpoint runs/openmarcie/distrixsense/seed-0/best.pt \
+  --manifest dataset/prepared/openmarcie/manifest.jsonl \
+  --drop-modalities ambient --output runs/openmarcie/missing-ambient.json
 python -m distrixsense attack \
-  --checkpoint runs/opportunity/distrixsense/seed-0/best.pt \
-  --manifest dataset/prepared/opportunity/manifest.jsonl \
-  --epochs 20 --output runs/opportunity/reconstruction-attack.json
+  --checkpoint runs/openmarcie/distrixsense/seed-0/best.pt \
+  --manifest dataset/prepared/openmarcie/manifest.jsonl \
+  --epochs 20 --output runs/openmarcie/reconstruction-attack.json
 ```
 
 Inference serializes and decodes packets before central reasoning. Indices are
@@ -109,8 +116,8 @@ sensitive-attribute attack or formal privacy guarantee is inferred.
 from distrixsense.deployment import PeripheralRuntime, CentralRuntime
 from distrixsense.transport import roundtrip
 
-edge, stats = PeripheralRuntime.load("runs/opportunity/deployment/peripheral.pt")
-central, _ = CentralRuntime.load("runs/opportunity/deployment/central.pt")
+edge, stats = PeripheralRuntime.load("runs/openmarcie/deployment/peripheral.pt")
+central, _ = CentralRuntime.load("runs/openmarcie/deployment/central.pt")
 # streams is a normalized, masked batch from the data interface.
 messages = edge(streams)
 received, packets = roundtrip(messages, edge.names, "cpu")
@@ -138,9 +145,6 @@ python -m distrixsense train \
 
 The LM loads locally and is frozen; its adapter learns from real QA annotations.
 `classifier` mode supplies predicted activity labels; `summary` supplies measured
-statistics. Ground-truth labels never enter the sensor prompt. Original OPPORTUNITY
-has no native QA targets, so its labels are not presented as open-ended reasoning
-supervision. Exact match and token F1 are available for annotated queries; semantic
+statistics. Ground-truth labels never enter the sensor prompt. Language training requires explicit question/answer annotations. Exact match and token F1 are available for annotated queries; semantic
 correctness and unsupported-answer rates require independent evaluation annotations.
-Concurrent multilabel actions and raw video/audio/LiDAR decoding require explicit
-dataset-specific preprocessing; the current task head is single-label.
+The raw loader preserves concurrent actions; the current classification head is single-label.
