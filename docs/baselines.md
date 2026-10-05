@@ -20,6 +20,9 @@ against actual serialized bytes; equal token counts do not mean equal bandwidth.
 | `posthoc_vq` | Train-only k-means on the best matched dense model's full grid; inherited frozen dense reasoner, no retraining |
 | `joint_vq` | Nearest-neighbor straight-through VQ on K projected features; bank also stored peripherally |
 | `deepconvlstm` | Four padded temporal convolutions and two LSTM layers on centralized observations |
+| `tcn` | Centralized residual causal/dilated convolution network |
+| `ts_transformer` | Supervised centralized time-series Transformer |
+| `patchtst` | Shared channel-independent patch Transformer adapted for classification |
 | `imagebind` | Optional genuine pretrained ImageBind feature export, projection and same central Transformer |
 
 The compression, adaptive pooling and ConvLSTM implementations are **sensor
@@ -69,3 +72,53 @@ Published-model reproduction, hardware energy, semantic QA assessment and privac
 claims require experiments on real datasets and deployment hardware.
 
 Nymeria source: https://github.com/facebookresearch/nymeria_dataset/tree/nymeria_dataset_legacy
+
+## Additional temporal comparisons
+
+The three additional temporal baselines train from scratch on the same normalized
+numeric feature manifests, splits, seeds, budget and validation selection as the
+distributed methods. They transmit complete feature observations and run centrally;
+serialized-byte measurements include those observations. Shared sensor autoencoders
+are not executed by these baselines. Raw media require the same explicit feature
+policies or encoder feature extraction used for the other methods.
+
+`tcn` follows the causal residual/dilated design of
+[Bai et al.](https://arxiv.org/abs/1803.01271): two weight-normalized convolutions per
+block, ReLU, dropout, left padding and dilation 1, 2, 4, … . The activity adaptation
+pools the window and includes availability as input. Configure `tcn_kernel`,
+`layers`, `hidden` and `dropout` in the experiment JSON.
+
+`ts_transformer` is a supervised control inspired by the multivariate framework of
+[Zerveas et al.](https://arxiv.org/abs/2010.02803). It jointly projects channels and
+availability, uses sinusoidal positions, pre-normalized Transformer layers and mean
+pooling. LayerNorm replaces the published BatchNorm implementation and masked
+reconstruction pretraining is omitted. It is a sensor adaptation, not a reproduction
+of the complete published training procedure.
+
+`patchtst` retains the shared univariate patch projection and channel-independent
+attention of [PatchTST](https://arxiv.org/abs/2211.14730), replacing forecasting with
+classification. `patch_length` and `patch_stride` default to 8 and 4; replication
+padding covers the final samples. Available channels are averaged before window
+pooling; absent channels contribute nothing. This adaptation uses existing train-only
+normalization, LayerNorm, and no RevIN or masked pretraining. The
+[official implementation](https://github.com/yuqinie98/PatchTST) is the reference
+for published forecasting experiments.
+
+These methods use existing per-stream timestamp resampling and a common sequence
+length. Each stream represents its own observed span; exact cross-device alignment
+must be supplied during preparation. They expose temporal logits and sensor tokens
+for the existing annotation and language interfaces. Architectures have different
+parameter counts: report the deployment inventories and sweep widths rather than
+assuming equal capacity from equal widths.
+
+```bash
+python -m distrixsense suite \
+  --manifest dataset/prepared/nymeria/manifest.jsonl \
+  --config dataset/prepared/nymeria/config.json \
+  --methods distrixsense dense_tokens deepconvlstm tcn ts_transformer patchtst \
+  --seeds 0 1 2 --output runs/nymeria-temporal
+```
+
+The same command accepts prepared OPPORTUNITY++ and OpenMarcie manifests. All three
+methods are included in the default suite and smoke test. No dataset or pretrained
+checkpoint download is needed to run the local synthetic validation.

@@ -21,7 +21,7 @@ python -m distrixsense smoke --output runs/smoke
 ```
 
 Install a CUDA-enabled PyTorch build appropriate to your machine before selecting
-`--device cuda`. The smoke suite trains all 18 main methods and ablations on small
+`--device cuda`. The smoke suite trains all 21 main methods and ablations on small
 synthetic fixtures and verifies actual binary-packet inference. These scores test
 software, not scientific superiority. Completed output directories cannot be reused.
 
@@ -61,7 +61,8 @@ export defaults to excluding ambiguous windows. See the
 
 Use `train --method METHOD --seed 0` for one method. Post-hoc VQ additionally requires
 `--dense-checkpoint` from a matched dense run. [Baseline definitions](docs/baselines.md)
-explain the controls and published sources.
+explain the controls and published sources. The default suite now also includes
+`tcn`, `ts_transformer` and `patchtst` temporal baselines.
 
 ## Evaluate and deploy
 

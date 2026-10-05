@@ -7,7 +7,7 @@ METHODS = (
     "distrixsense", "dense", "dense_tokens", "raw", "early_fusion", "late_fusion", "local_only",
     "bottleneck", "tokenlearner", "posthoc_vq", "joint_vq", "deepconvlstm",
     "unrestricted_bank", "separate_banks", "fixed_resampling", "finetune_encoders",
-    "no_alignment", "no_usage", "imagebind",
+    "no_alignment", "no_usage", "imagebind", "tcn", "ts_transformer", "patchtst",
 )
 
 
@@ -26,6 +26,9 @@ class Config:
     dropout: float = 0.1
     bottleneck_dim: int = 4
     channel_noise: float = 0.0
+    tcn_kernel: int = 3
+    patch_length: int = 8
+    patch_stride: int = 4
     modality_dropout: float = 0.15
     temperature: float = 1.0
     commitment: float = 0.1
@@ -54,11 +57,14 @@ class Config:
         if any("." in k for k in self.modalities):
             raise ValueError("Modality names cannot contain dots (PyTorch module keys)")
         for name in ("classes", "resample_length", "tokens", "hidden", "bank_size", "heads",
-                     "layers", "bottleneck_dim", "epochs", "pretrain_epochs", "batch_size", "patience"):
+                     "layers", "bottleneck_dim", "epochs", "pretrain_epochs", "batch_size", "patience",
+                     "tcn_kernel", "patch_length", "patch_stride"):
             if getattr(self, name) < 1:
                 raise ValueError(f"{name} must be positive")
         if self.hidden % self.heads or self.tokens > self.resample_length:
             raise ValueError("hidden must divide heads; tokens cannot exceed resample_length")
+        if self.method == "patchtst" and (self.patch_length > self.resample_length or self.patch_stride > self.patch_length):
+            raise ValueError("PatchTST requires patch_stride <= patch_length <= resample_length")
         if not 0 <= self.modality_dropout < 1 or not 0 <= self.dropout < 1:
             raise ValueError("Dropout probabilities must be in [0, 1)")
         if self.temperature <= 0 or self.bandwidth_mbps <= 0 or self.protocol_overhead < 0:

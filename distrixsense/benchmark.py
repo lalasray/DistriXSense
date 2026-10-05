@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np
 import torch
 from .models import DISCRETE, LOCAL, RAW
+from .temporal_baselines import METHODS as TEMPORAL
 from .transport import roundtrip
 
 
@@ -18,7 +19,9 @@ def deployed_modules(model):
     method = model.cfg.method
     if method in RAW:
         edge = []
-        if method == "deepconvlstm":
+        if method in TEMPORAL:
+            central = [model.resamplers, model.temporal_baseline]
+        elif method == "deepconvlstm":
             central = [model.resamplers, model.conv_lstm, model.lstm, model.lstm_head]
         elif method == "early_fusion":
             central = [model.resamplers, model.early_projection, model.reasoner]

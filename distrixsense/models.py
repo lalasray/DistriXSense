@@ -3,10 +3,11 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 from .transport import Message
+from .temporal_baselines import TemporalBaseline, METHODS as TEMPORAL
 
 DISCRETE = {"distrixsense", "joint_vq", "unrestricted_bank", "separate_banks",
             "fixed_resampling", "finetune_encoders", "no_alignment", "no_usage", "posthoc_vq"}
-RAW = {"raw", "early_fusion", "deepconvlstm"}
+RAW = {"raw", "early_fusion", "deepconvlstm"} | TEMPORAL
 LOCAL = {"late_fusion", "local_only"}
 
 
@@ -152,6 +153,8 @@ class DistributedModel(nn.Module):
         self.conv_lstm = nn.Sequential(*layers)
         self.lstm = nn.LSTM(d, d, num_layers=2, dropout=cfg.dropout, batch_first=True)
         self.lstm_head = nn.Linear(d, cfg.classes)
+        if cfg.method in TEMPORAL:
+            self.temporal_baseline = TemporalBaseline(cfg)
         if cfg.method == "separate_banks":
             self.separate_banks = nn.ParameterDict({n: nn.Parameter(self.bank.weight[self.offsets[n]:self.offsets[n]+self.bank_sizes[n]].detach().clone()) for n in self.names})
             self.bank.requires_grad_(False)
@@ -321,6 +324,11 @@ class DistributedModel(nn.Module):
                     t = torch.zeros(b, cfg.resample_length, device=device)
                     p = torch.zeros(b, dtype=torch.bool, device=device)
                 aligned[n], atimes[n], ap[n] = x, t, p
+            if cfg.method in TEMPORAL:
+                raw = torch.cat([aligned[n] for n in self.names], -1)
+                weights = availability.float().unsqueeze(-1)
+                fused_times = (torch.stack([atimes[n] for n in self.names], 1)*weights).sum(1)/weights.sum(1).clamp_min(1)
+                return self.temporal_baseline(raw, fused_times, availability)
             if cfg.method == "deepconvlstm":
                 raw = torch.cat([aligned[n] for n in self.names], -1)
                 z, _ = self.lstm(self.conv_lstm(raw.transpose(1, 2)).transpose(1, 2))

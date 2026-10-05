@@ -32,7 +32,7 @@ def loader(dataset, cfg, shuffle=False):
 
 def fingerprint(manifest, cfg):
     relevant = {k: cfg.to_dict()[k] for k in ("modalities", "classes", "hidden", "resample_length", "tokens", "seed", "pretrain_epochs", "lr", "batch_size", "weight_decay", "heads", "layers", "bank_size", "bank_sizes", "bottleneck_dim", "dropout")}
-    implementation = b"".join((Path(__file__).parent/name).read_bytes() for name in ("training.py", "models.py", "data.py"))
+    implementation = b"".join((Path(__file__).parent/name).read_bytes() for name in ("training.py", "models.py", "temporal_baselines.py", "data.py"))
     h = hashlib.sha256(implementation + Path(manifest).read_bytes() + json.dumps(relevant, sort_keys=True).encode())
     # Include source bytes so changing a window cannot reuse stale normalization/encoders.
     rows = [json.loads(s) for s in Path(manifest).read_text().splitlines() if s.strip()]

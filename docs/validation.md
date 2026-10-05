@@ -9,14 +9,14 @@ those versions and CUDA have not been separately exercised here.
 .venv/bin/python -m distrixsense smoke --output runs/validation
 ```
 
-All 33 tests passed. The tests cover participant leakage rejection, training-only
+All 37 tests passed. The tests cover participant leakage rejection, training-only
 normalization, annotation-column exclusion, asynchronous recording preparation,
 timestamp interpolation, padding invariance, all-missing sensors, frozen encoders,
 selector/bank gradients, reserved-bank enforcement, packet corruption and bit widths,
 checkpoint restoration, temporal-head supervision and standalone deployment exports.
 
 The smoke suite completed training, validation, test evaluation and packet inference
-for all 18 main methods/ablations. The optional ImageBind fusion branch was tested
+for all 21 main methods/ablations. The optional ImageBind fusion branch was tested
 with numeric fixtures, but genuine pretrained ImageBind extraction requires the
 official package and weights and was not run. Published baseline reproductions are
 not claimed; adaptation differences are documented in baselines.md.
@@ -44,3 +44,5 @@ No datasets were downloaded. No real-data performance or release-wide compatibil
 is claimed from these fixtures. Full real-data training, native Aria SDK validation,
 official ImageBind pretrained inference, useful local-LM QA, hardware deployment,
 measured network latency and energy require the actual data, weights or instruments.
+
+Additional temporal tests verify TCN causality, PatchTST tail coverage and missing-channel exclusion, gradient flow, masked-input invariance and checkpoint restoration. The 21-method smoke suite completed in `runs/temporal-baselines-validation`.
