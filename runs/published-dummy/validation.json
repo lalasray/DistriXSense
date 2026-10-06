@@ -1,0 +1,42 @@
+{
+  "combinations": 7749,
+  "core_shape_measurements": 286,
+  "unique_core_shapes": 272,
+  "shape_reused_combinations": 7463,
+  "packet_max_logit_difference": 2.384185791015625e-07,
+  "coverage": "complete",
+  "accounting_invariants": "passed",
+  "by_core": {
+    "gemma3_1b": 2583,
+    "qwen3_4b": 2583,
+    "qwen3_8b": 2583
+  },
+  "task_accuracy_tested": false,
+  "datasets_downloaded": false,
+  "gpu_measured": true,
+  "by_target": {
+    "cpu": 2583,
+    "cuda": 2583,
+    "mixed": 2583
+  },
+  "cross_device_reference_differences": [
+    {
+      "scenario_id": "nymeria__all__gemma3_1b",
+      "target": "mixed",
+      "method": "posthoc_vq",
+      "difference": 8.098781108856201e-05
+    },
+    {
+      "scenario_id": "nymeria__all__qwen3_4b",
+      "target": "mixed",
+      "method": "posthoc_vq",
+      "difference": 8.098781108856201e-05
+    },
+    {
+      "scenario_id": "nymeria__all__qwen3_8b",
+      "target": "mixed",
+      "method": "posthoc_vq",
+      "difference": 8.098781108856201e-05
+    }
+  ]
+}

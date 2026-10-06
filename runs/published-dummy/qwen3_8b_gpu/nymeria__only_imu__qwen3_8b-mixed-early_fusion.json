@@ -1,0 +1,638 @@
+{
+  "method": "early_fusion",
+  "edges": {
+    "head": {
+      "streams": [
+        "head_imu_left",
+        "head_imu_right"
+      ],
+      "execution_device": "cpu",
+      "storage": {
+        "parameters": 0,
+        "weight_bytes": 0,
+        "buffer_bytes": 0,
+        "serialized_state_bytes": 0
+      },
+      "compute": {
+        "median_ms": 0.0005700003384845331,
+        "p95_ms": 0.0008489998435834423,
+        "min_ms": 0.0005100000635138713,
+        "iterations": 3,
+        "warmup": 1,
+        "cuda_peak_incremental_allocated_bytes": null
+      },
+      "encoding": {
+        "median_ms": 0.0564499996471568,
+        "p95_ms": 0.05781799991382286,
+        "min_ms": 0.05603000045084627,
+        "iterations": 3,
+        "warmup": 1,
+        "cuda_peak_incremental_allocated_bytes": null
+      },
+      "arithmetic": {
+        "counted_flops": 0,
+        "counted_operations": {},
+        "unmodeled_operations": [],
+        "convention": "Formula-based matrix/convolution/attention FLOPs; multiply-add=2. Unregistered operations excluded. This is not a complete instruction count."
+      },
+      "input_tensor_bytes": 129600,
+      "network": {
+        "packets": 2,
+        "application_bytes": 151232,
+        "header_bytes": 32,
+        "timestamp_bytes": 21600,
+        "representation_bytes": 129600,
+        "application_packet_sizes": [
+          67216,
+          84016
+        ],
+        "protocol_overhead_bytes": 2912,
+        "wire_bytes": 154144,
+        "transport_fragments": 104,
+        "mtu_payload_bytes": 1472,
+        "bandwidth_mbps": 10.0,
+        "latency_ms": 2.0,
+        "serialization_on_link_ms": 123.3152,
+        "transfer_ms": 125.3152,
+        "required_mbps": 0.8221013333333334,
+        "link_utilization": 0.08221013333333334
+      }
+    },
+    "left_wrist": {
+      "streams": [
+        "left_wrist_imu_left",
+        "left_wrist_imu_right"
+      ],
+      "execution_device": "cpu",
+      "storage": {
+        "parameters": 0,
+        "weight_bytes": 0,
+        "buffer_bytes": 0,
+        "serialized_state_bytes": 0
+      },
+      "compute": {
+        "median_ms": 0.0005900001269765198,
+        "p95_ms": 0.0006620001840929035,
+        "min_ms": 0.00048000038077589124,
+        "iterations": 3,
+        "warmup": 1,
+        "cuda_peak_incremental_allocated_bytes": null
+      },
+      "encoding": {
+        "median_ms": 0.05455100017570658,
+        "p95_ms": 0.054919099966355134,
+        "min_ms": 0.05433000023913337,
+        "iterations": 3,
+        "warmup": 1,
+        "cuda_peak_incremental_allocated_bytes": null
+      },
+      "arithmetic": {
+        "counted_flops": 0,
+        "counted_operations": {},
+        "unmodeled_operations": [],
+        "convention": "Formula-based matrix/convolution/attention FLOPs; multiply-add=2. Unregistered operations excluded. This is not a complete instruction count."
+      },
+      "input_tensor_bytes": 129600,
+      "network": {
+        "packets": 2,
+        "application_bytes": 151232,
+        "header_bytes": 32,
+        "timestamp_bytes": 21600,
+        "representation_bytes": 129600,
+        "application_packet_sizes": [
+          67216,
+          84016
+        ],
+        "protocol_overhead_bytes": 2912,
+        "wire_bytes": 154144,
+        "transport_fragments": 104,
+        "mtu_payload_bytes": 1472,
+        "bandwidth_mbps": 10.0,
+        "latency_ms": 2.0,
+        "serialization_on_link_ms": 123.3152,
+        "transfer_ms": 125.3152,
+        "required_mbps": 0.8221013333333334,
+        "link_utilization": 0.08221013333333334
+      }
+    },
+    "observer": {
+      "streams": [
+        "observer_imu_left",
+        "observer_imu_right"
+      ],
+      "execution_device": "cpu",
+      "storage": {
+        "parameters": 0,
+        "weight_bytes": 0,
+        "buffer_bytes": 0,
+        "serialized_state_bytes": 0
+      },
+      "compute": {
+        "median_ms": 0.0005400006557465531,
+        "p95_ms": 0.0007019997610768769,
+        "min_ms": 0.0005000001692678779,
+        "iterations": 3,
+        "warmup": 1,
+        "cuda_peak_incremental_allocated_bytes": null
+      },
+      "encoding": {
+        "median_ms": 0.054260000069916714,
+        "p95_ms": 0.05504299997483031,
+        "min_ms": 0.05388000045059016,
+        "iterations": 3,
+        "warmup": 1,
+        "cuda_peak_incremental_allocated_bytes": null
+      },
+      "arithmetic": {
+        "counted_flops": 0,
+        "counted_operations": {},
+        "unmodeled_operations": [],
+        "convention": "Formula-based matrix/convolution/attention FLOPs; multiply-add=2. Unregistered operations excluded. This is not a complete instruction count."
+      },
+      "input_tensor_bytes": 129600,
+      "network": {
+        "packets": 2,
+        "application_bytes": 151232,
+        "header_bytes": 32,
+        "timestamp_bytes": 21600,
+        "representation_bytes": 129600,
+        "application_packet_sizes": [
+          67216,
+          84016
+        ],
+        "protocol_overhead_bytes": 2912,
+        "wire_bytes": 154144,
+        "transport_fragments": 104,
+        "mtu_payload_bytes": 1472,
+        "bandwidth_mbps": 10.0,
+        "latency_ms": 2.0,
+        "serialization_on_link_ms": 123.3152,
+        "transfer_ms": 125.3152,
+        "required_mbps": 0.8221013333333334,
+        "link_utilization": 0.08221013333333334
+      }
+    },
+    "right_wrist": {
+      "streams": [
+        "right_wrist_imu_left",
+        "right_wrist_imu_right"
+      ],
+      "execution_device": "cpu",
+      "storage": {
+        "parameters": 0,
+        "weight_bytes": 0,
+        "buffer_bytes": 0,
+        "serialized_state_bytes": 0
+      },
+      "compute": {
+        "median_ms": 0.000529999852005858,
+        "p95_ms": 0.0006470002517744433,
+        "min_ms": 0.0004900002750218846,
+        "iterations": 3,
+        "warmup": 1,
+        "cuda_peak_incremental_allocated_bytes": null
+      },
+      "encoding": {
+        "median_ms": 0.054350000027625356,
+        "p95_ms": 0.05522299979929812,
+        "min_ms": 0.05402100032370072,
+        "iterations": 3,
+        "warmup": 1,
+        "cuda_peak_incremental_allocated_bytes": null
+      },
+      "arithmetic": {
+        "counted_flops": 0,
+        "counted_operations": {},
+        "unmodeled_operations": [],
+        "convention": "Formula-based matrix/convolution/attention FLOPs; multiply-add=2. Unregistered operations excluded. This is not a complete instruction count."
+      },
+      "input_tensor_bytes": 129600,
+      "network": {
+        "packets": 2,
+        "application_bytes": 151232,
+        "header_bytes": 32,
+        "timestamp_bytes": 21600,
+        "representation_bytes": 129600,
+        "application_packet_sizes": [
+          67216,
+          84016
+        ],
+        "protocol_overhead_bytes": 2912,
+        "wire_bytes": 154144,
+        "transport_fragments": 104,
+        "mtu_payload_bytes": 1472,
+        "bandwidth_mbps": 10.0,
+        "latency_ms": 2.0,
+        "serialization_on_link_ms": 123.3152,
+        "transfer_ms": 125.3152,
+        "required_mbps": 0.8221013333333334,
+        "link_utilization": 0.08221013333333334
+      }
+    }
+  },
+  "core": {
+    "execution_device": "cuda",
+    "storage": {
+      "parameters": 30244,
+      "weight_bytes": 120976,
+      "buffer_bytes": 0,
+      "serialized_state_bytes": 143243
+    },
+    "compute": {
+      "median_ms": 2.2706719992129365,
+      "p95_ms": 2.3127101003410644,
+      "min_ms": 2.261270999952103,
+      "iterations": 3,
+      "warmup": 1,
+      "cuda_peak_incremental_allocated_bytes": 208384
+    },
+    "decoding": {
+      "median_ms": 0.27177199990546796,
+      "p95_ms": 0.2850190993740398,
+      "min_ms": 0.26536099994700635,
+      "iterations": 3,
+      "warmup": 1,
+      "cuda_peak_incremental_allocated_bytes": 630784
+    },
+    "arithmetic": {
+      "counted_flops": 2136448,
+      "counted_operations": {
+        "aten.convolution": 27648,
+        "aten.addmm": 1830016,
+        "aten._scaled_dot_product_efficient_attention": 278784
+      },
+      "unmodeled_operations": [
+        "aten._to_copy",
+        "aten.add",
+        "aten.any",
+        "aten.bitwise_not",
+        "aten.cat",
+        "aten.clamp",
+        "aten.clamp_min",
+        "aten.clone",
+        "aten.constant_pad_nd",
+        "aten.copy_",
+        "aten.cos",
+        "aten.div",
+        "aten.empty",
+        "aten.expand",
+        "aten.gather",
+        "aten.gelu",
+        "aten.index",
+        "aten.linspace",
+        "aten.masked_fill",
+        "aten.masked_fill_",
+        "aten.mul",
+        "aten.native_layer_norm",
+        "aten.ones",
+        "aten.permute",
+        "aten.relu",
+        "aten.rsub",
+        "aten.searchsorted",
+        "aten.select",
+        "aten.sin",
+        "aten.slice",
+        "aten.sort",
+        "aten.squeeze",
+        "aten.stack",
+        "aten.sub",
+        "aten.sum",
+        "aten.t",
+        "aten.transpose",
+        "aten.unsqueeze",
+        "aten.view",
+        "aten.zeros",
+        "aten.zeros_like"
+      ],
+      "convention": "Formula-based matrix/convolution/attention FLOPs; multiply-add=2. Unregistered operations excluded. This is not a complete instruction count."
+    },
+    "language": {
+      "mode": "sensor",
+      "checkpoint": "/home/lala/Code/DistriXSense/configs/../checkpoints/Qwen3-8B",
+      "prompt_tokens_including_prefix": 102,
+      "dtype": "torch.bfloat16",
+      "prompt_style": "auto",
+      "prefill_logit_policy": "last_position",
+      "decode_tokens": 8,
+      "storage": {
+        "parameters": 8207651840,
+        "weight_bytes": 16449136640,
+        "buffer_bytes": 256,
+        "serialized_state_bytes": null
+      },
+      "prompt_and_adapter": {
+        "median_ms": 0.3386710004633642,
+        "p95_ms": 0.3647358994385286,
+        "min_ms": 0.33411200001864927,
+        "iterations": 3,
+        "warmup": 1,
+        "cuda_peak_incremental_allocated_bytes": 1673216
+      },
+      "prompt_and_adapter_arithmetic": {
+        "counted_flops": 1082130432,
+        "counted_operations": {
+          "aten.addmm": 1082130432
+        },
+        "unmodeled_operations": [
+          "aten._to_copy",
+          "aten.cat",
+          "aten.detach",
+          "aten.embedding",
+          "aten.full",
+          "aten.gelu",
+          "aten.index",
+          "aten.lift_fresh",
+          "aten.select",
+          "aten.t",
+          "aten.unsqueeze"
+        ],
+        "convention": "Formula-based matrix/convolution/attention FLOPs; multiply-add=2. Unregistered operations excluded. This is not a complete instruction count."
+      },
+      "prefill": {
+        "median_ms": 16.352822999579075,
+        "p95_ms": 16.522122899732494,
+        "min_ms": 15.62913900033891,
+        "iterations": 3,
+        "warmup": 1,
+        "cuda_peak_incremental_allocated_bytes": 25120768
+      },
+      "prefill_arithmetic": {
+        "counted_flops": 1424317756160,
+        "counted_operations": {
+          "aten.bmm": 13056,
+          "aten.mm": 1418181214208,
+          "aten._scaled_dot_product_flash_attention": 6136528896
+        },
+        "unmodeled_operations": [
+          "aten._local_scalar_dense",
+          "aten._to_copy",
+          "aten._unsafe_view",
+          "aten.add",
+          "aten.all",
+          "aten.arange",
+          "aten.cat",
+          "aten.cos",
+          "aten.expand",
+          "aten.lift_fresh",
+          "aten.mean",
+          "aten.mul",
+          "aten.neg",
+          "aten.pow",
+          "aten.rsqrt",
+          "aten.silu",
+          "aten.sin",
+          "aten.slice",
+          "aten.t",
+          "aten.transpose",
+          "aten.unsqueeze",
+          "aten.view"
+        ],
+        "convention": "Formula-based matrix/convolution/attention FLOPs; multiply-add=2. Unregistered operations excluded. This is not a complete instruction count."
+      },
+      "prefill_and_fixed_decode": {
+        "median_ms": 111.46995400031301,
+        "p95_ms": 111.63215289943764,
+        "min_ms": 111.38225499962573,
+        "iterations": 3,
+        "warmup": 1,
+        "cuda_peak_incremental_allocated_bytes": 25123840
+      },
+      "generation_arithmetic": {
+        "counted_flops": 1530708768384,
+        "counted_operations": {
+          "aten.bmm": 13952,
+          "aten.mm": 1524134576128,
+          "aten._scaled_dot_product_flash_attention": 6574178304
+        },
+        "unmodeled_operations": [
+          "aten._local_scalar_dense",
+          "aten._to_copy",
+          "aten._unsafe_view",
+          "aten.add",
+          "aten.all",
+          "aten.any",
+          "aten.arange",
+          "aten.argmax",
+          "aten.bitwise_and",
+          "aten.bitwise_not",
+          "aten.bitwise_or",
+          "aten.cat",
+          "aten.clone",
+          "aten.cos",
+          "aten.cumsum",
+          "aten.embedding",
+          "aten.eq",
+          "aten.expand",
+          "aten.full",
+          "aten.isin",
+          "aten.lift_fresh",
+          "aten.lt",
+          "aten.masked_fill_",
+          "aten.max",
+          "aten.mean",
+          "aten.mul",
+          "aten.neg",
+          "aten.new_ones",
+          "aten.ones",
+          "aten.ones_like",
+          "aten.pow",
+          "aten.rsqrt",
+          "aten.rsub",
+          "aten.scalar_tensor",
+          "aten.select",
+          "aten.silu",
+          "aten.sin",
+          "aten.slice",
+          "aten.sub",
+          "aten.t",
+          "aten.transpose",
+          "aten.unsqueeze",
+          "aten.view",
+          "aten.where"
+        ],
+        "convention": "Formula-based matrix/convolution/attention FLOPs; multiply-add=2. Unregistered operations excluded. This is not a complete instruction count."
+      },
+      "generated_token_ids": [
+        15474,
+        26683,
+        5904,
+        13,
+        576,
+        3897,
+        5904,
+        1172
+      ],
+      "generated_tokens": 8,
+      "language_measurement_id": "c3837e6d64de43a0b154f55afd2fa620",
+      "language_measurement": "shape_matched_reuse",
+      "language_shape_id": "67f29aae317d08ca59d7",
+      "shape_reuse_note": "When enabled, only frozen-core stages are reused for identical checkpoint/device/dtype/batch/sequence/width/decode shapes. Prompt values may differ; adapter and sensor stages are measured separately. Latency is a shape-based estimate for reused cases.",
+      "adapter_weights": "random cost fixture"
+    }
+  },
+  "total_deployed": {
+    "parameters": 30244,
+    "weight_bytes": 120976,
+    "buffer_bytes": 0,
+    "serialized_state_bytes": 143243,
+    "counted_flops": 2136448,
+    "wire_bytes": 616576
+  },
+  "measured_colocated_sequential_pipeline": {
+    "median_ms": 2.9070749997117673,
+    "p95_ms": 2.919963000113057,
+    "min_ms": 2.904944999500003,
+    "iterations": 3,
+    "warmup": 1,
+    "cuda_peak_incremental_allocated_bytes": 839168,
+    "windows_per_second": 343.9883732270921
+  },
+  "compression": {
+    "raw_numeric_payload_bytes": 518400,
+    "representation_bytes": 518400,
+    "raw_to_representation_ratio": 1.0,
+    "raw_to_wire_ratio": 0.840772264895163
+  },
+  "packet_logit_max_difference": 0.0,
+  "schedule_estimates": {
+    "parallel_independent_edges_and_links_ms": 127.91466399910405,
+    "sequential_edges_and_links_ms": 504.02508500001204,
+    "shared_uplink_ms": null,
+    "window_cadence_seconds": 1.5,
+    "parallel_can_keep_up": true
+  },
+  "research_model_parameters": 147406,
+  "host": {
+    "platform": "Linux-7.0.0-34-generic-x86_64-with-glibc2.43",
+    "cpu": "",
+    "torch": "2.14.1+cu130",
+    "threads": 8,
+    "cuda_devices": [
+      "NVIDIA RTX PRO 6000 Blackwell Workstation Edition"
+    ],
+    "process_peak_rss_bytes_cumulative": 6525321216
+  },
+  "energy_joules": null,
+  "scope": {
+    "sensor_interface_and_classifier": "included",
+    "language_model": "included_separate_prompt_specific_stage",
+    "media_or_pretrained_frontend": "excluded",
+    "normalization_and_data_loading": "excluded"
+  },
+  "limitations": [
+    "Stage medians combined in schedule estimates; not measured network or simultaneous-device latency.",
+    "CPU peak RSS is cumulative process memory, not isolated model activation memory.",
+    "FLOPs are registered arithmetic only; unmodeled operators listed per stage.",
+    "Front-end media/feature extraction and optional language model excluded unless separately profiled."
+  ],
+  "total_deployed_with_language": {
+    "parameters": 8207682084,
+    "weight_bytes": 16449257616,
+    "buffer_bytes": 256,
+    "serialized_state_bytes": null,
+    "counted_flops": 1531793035264,
+    "wire_bytes": 616576
+  },
+  "with_language_latency_estimates": {
+    "colocated_pipeline_ms": 114.71570000048814,
+    "parallel_edges_and_links_ms": 239.72328899988042
+  },
+  "dataset": "nymeria",
+  "target": "mixed",
+  "configuration": {
+    "modalities": {
+      "head_imu_left": 6,
+      "head_imu_right": 6,
+      "observer_imu_left": 6,
+      "observer_imu_right": 6,
+      "left_wrist_imu_left": 6,
+      "left_wrist_imu_right": 6,
+      "right_wrist_imu_left": 6,
+      "right_wrist_imu_right": 6
+    },
+    "classes": 10,
+    "method": "early_fusion",
+    "resample_length": 32,
+    "tokens": 8,
+    "hidden": 32,
+    "bank_size": 32,
+    "bank_sizes": {},
+    "heads": 4,
+    "layers": 2,
+    "dropout": 0,
+    "bottleneck_dim": 4,
+    "channel_noise": 0.0,
+    "tcn_kernel": 3,
+    "patch_length": 8,
+    "patch_stride": 4,
+    "modality_dropout": 0,
+    "temperature": 1.0,
+    "commitment": 0.1,
+    "alignment": 0.05,
+    "usage": 0.01,
+    "reconstruction": 0.1,
+    "language_weight": 1.0,
+    "event_weight": 0.1,
+    "epochs": 20,
+    "pretrain_epochs": 5,
+    "batch_size": 32,
+    "lr": 0.001,
+    "weight_decay": 0.0001,
+    "patience": 5,
+    "seed": 0,
+    "device": "cpu",
+    "protocol_overhead": 0,
+    "bandwidth_mbps": 10.0,
+    "link_latency_ms": 0.0
+  },
+  "scenario_id": "nymeria__only_imu__qwen3_8b",
+  "core_name": "qwen3_8b",
+  "modality_set": "only_imu",
+  "input_shapes": {
+    "head_imu_left": [
+      1,
+      2400,
+      6
+    ],
+    "head_imu_right": [
+      1,
+      3000,
+      6
+    ],
+    "observer_imu_left": [
+      1,
+      2400,
+      6
+    ],
+    "observer_imu_right": [
+      1,
+      3000,
+      6
+    ],
+    "left_wrist_imu_left": [
+      1,
+      2400,
+      6
+    ],
+    "left_wrist_imu_right": [
+      1,
+      3000,
+      6
+    ],
+    "right_wrist_imu_left": [
+      1,
+      2400,
+      6
+    ],
+    "right_wrist_imu_right": [
+      1,
+      3000,
+      6
+    ]
+  },
+  "evidence": "random_weights_cost_fixture",
+  "input_provenance": "nymeria published-dimension synthetic feature fixture; see modality_inventory.json for field-specific assumptions. Random sensor weights. Feature extraction excluded. All derived/observer streams is a cost stress test, not a leakage-safe task protocol.",
+  "colocated_reference_logit_max_difference": 0.0,
+  "transport_validation": "Same CPU edge outputs sent directly vs serialized/deserialized to GPU core; independently rechecked after profiling.",
+  "rechecked_colocated_reference_logit_max_difference": 0.0
+}

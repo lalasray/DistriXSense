@@ -1,0 +1,439 @@
+{
+  "method": "unrestricted_bank",
+  "edges": {
+    "temperature_gateway": {
+      "streams": [
+        "temperature"
+      ],
+      "execution_device": "cpu",
+      "storage": {
+        "parameters": 7244,
+        "weight_bytes": 28976,
+        "buffer_bytes": 0,
+        "serialized_state_bytes": 34099
+      },
+      "compute": {
+        "median_ms": 0.20460099949559662,
+        "p95_ms": 0.2202249996116734,
+        "min_ms": 0.2038709990301868,
+        "iterations": 3,
+        "warmup": 1,
+        "cuda_peak_incremental_allocated_bytes": null
+      },
+      "encoding": {
+        "median_ms": 0.012069998774677515,
+        "p95_ms": 0.01503999847045634,
+        "min_ms": 0.011509999239933677,
+        "iterations": 3,
+        "warmup": 1,
+        "cuda_peak_incremental_allocated_bytes": null
+      },
+      "arithmetic": {
+        "counted_flops": 370944,
+        "counted_operations": {
+          "aten.convolution": 239360,
+          "aten.mm": 65536,
+          "aten.addmm": 49152,
+          "aten.bmm": 16896
+        },
+        "unmodeled_operations": [
+          "aten._softmax",
+          "aten._unsafe_view",
+          "aten.add",
+          "aten.any",
+          "aten.argmax",
+          "aten.clamp",
+          "aten.clamp_min",
+          "aten.div",
+          "aten.expand",
+          "aten.gelu",
+          "aten.index",
+          "aten.linspace",
+          "aten.mean",
+          "aten.mul",
+          "aten.rsub",
+          "aten.searchsorted",
+          "aten.select",
+          "aten.sort",
+          "aten.squeeze",
+          "aten.stack",
+          "aten.sub",
+          "aten.t",
+          "aten.transpose",
+          "aten.unsqueeze",
+          "aten.view"
+        ],
+        "convention": "Formula-based matrix/convolution/attention FLOPs; multiply-add=2. Unregistered operations excluded. This is not a complete instruction count."
+      },
+      "input_tensor_bytes": 480,
+      "network": {
+        "packets": 1,
+        "application_bytes": 53,
+        "header_bytes": 16,
+        "timestamp_bytes": 32,
+        "representation_bytes": 5,
+        "application_packet_sizes": [
+          53
+        ],
+        "protocol_overhead_bytes": 28,
+        "wire_bytes": 81,
+        "transport_fragments": 1,
+        "mtu_payload_bytes": 1472,
+        "bandwidth_mbps": 10.0,
+        "latency_ms": 2.0,
+        "serialization_on_link_ms": 0.0648,
+        "transfer_ms": 2.0648,
+        "required_mbps": 0.000432,
+        "link_utilization": 4.32e-05
+      }
+    }
+  },
+  "core": {
+    "execution_device": "cpu",
+    "storage": {
+      "parameters": 28600,
+      "weight_bytes": 114400,
+      "buffer_bytes": 0,
+      "serialized_state_bytes": 126318
+    },
+    "compute": {
+      "median_ms": 0.21776999892608728,
+      "p95_ms": 0.25210590047208825,
+      "min_ms": 0.20337099886091892,
+      "iterations": 3,
+      "warmup": 1,
+      "cuda_peak_incremental_allocated_bytes": null
+    },
+    "decoding": {
+      "median_ms": 0.009941000826074742,
+      "p95_ms": 0.013459100046020467,
+      "min_ms": 0.008850000085658394,
+      "iterations": 3,
+      "warmup": 1,
+      "cuda_peak_incremental_allocated_bytes": null
+    },
+    "arithmetic": {
+      "counted_flops": 488000,
+      "counted_operations": {
+        "aten.addmm": 467264,
+        "aten._scaled_dot_product_flash_attention_for_cpu": 20736
+      },
+      "unmodeled_operations": [
+        "aten._to_copy",
+        "aten.add",
+        "aten.any",
+        "aten.bitwise_not",
+        "aten.cat",
+        "aten.clone",
+        "aten.copy_",
+        "aten.cos",
+        "aten.embedding",
+        "aten.empty",
+        "aten.expand",
+        "aten.gather",
+        "aten.gelu",
+        "aten.masked_fill",
+        "aten.masked_fill_",
+        "aten.mul",
+        "aten.native_layer_norm",
+        "aten.ones",
+        "aten.permute",
+        "aten.relu",
+        "aten.select",
+        "aten.sin",
+        "aten.slice",
+        "aten.sort",
+        "aten.squeeze",
+        "aten.stack",
+        "aten.t",
+        "aten.transpose",
+        "aten.unsqueeze",
+        "aten.view",
+        "aten.zeros",
+        "aten.zeros_like"
+      ],
+      "convention": "Formula-based matrix/convolution/attention FLOPs; multiply-add=2. Unregistered operations excluded. This is not a complete instruction count."
+    },
+    "language": {
+      "mode": "sensor",
+      "checkpoint": "/home/lala/Code/DistriXSense/configs/../checkpoints/gemma-3-1b-it",
+      "prompt_tokens_including_prefix": 60,
+      "dtype": "torch.bfloat16",
+      "prompt_style": "auto",
+      "prefill_logit_policy": "last_position",
+      "decode_tokens": 8,
+      "storage": {
+        "parameters": 1001252224,
+        "weight_bytes": 2005236992,
+        "buffer_bytes": 1026,
+        "serialized_state_bytes": null
+      },
+      "prompt_and_adapter": {
+        "median_ms": 0.22050099869375117,
+        "p95_ms": 0.2303640987520339,
+        "min_ms": 0.201991000722046,
+        "iterations": 3,
+        "warmup": 1,
+        "cuda_peak_incremental_allocated_bytes": null
+      },
+      "prompt_and_adapter_arithmetic": {
+        "counted_flops": 21823488,
+        "counted_operations": {
+          "aten.addmm": 21823488
+        },
+        "unmodeled_operations": [
+          "aten._to_copy",
+          "aten.cat",
+          "aten.detach",
+          "aten.embedding",
+          "aten.full",
+          "aten.gelu",
+          "aten.index",
+          "aten.lift_fresh",
+          "aten.mul",
+          "aten.select",
+          "aten.t",
+          "aten.unsqueeze"
+        ],
+        "convention": "Formula-based matrix/convolution/attention FLOPs; multiply-add=2. Unregistered operations excluded. This is not a complete instruction count."
+      },
+      "prefill": {
+        "median_ms": 62.566761998823495,
+        "p95_ms": 63.46099569982471,
+        "min_ms": 62.48432000029425,
+        "iterations": 3,
+        "warmup": 1,
+        "cuda_peak_incremental_allocated_bytes": null
+      },
+      "prefill_arithmetic": {
+        "counted_flops": 84718811136,
+        "counted_operations": {
+          "aten.bmm": 30720,
+          "aten.mm": 84335394816,
+          "aten._scaled_dot_product_flash_attention_for_cpu": 383385600
+        },
+        "unmodeled_operations": [
+          "aten._local_scalar_dense",
+          "aten._to_copy",
+          "aten._unsafe_view",
+          "aten.add",
+          "aten.all",
+          "aten.arange",
+          "aten.cat",
+          "aten.cos",
+          "aten.expand",
+          "aten.gelu",
+          "aten.lift_fresh",
+          "aten.mean",
+          "aten.mul",
+          "aten.neg",
+          "aten.pow",
+          "aten.rsqrt",
+          "aten.sin",
+          "aten.slice",
+          "aten.t",
+          "aten.transpose",
+          "aten.unsqueeze",
+          "aten.view"
+        ],
+        "convention": "Formula-based matrix/convolution/attention FLOPs; multiply-add=2. Unregistered operations excluded. This is not a complete instruction count."
+      },
+      "prefill_and_fixed_decode": {
+        "median_ms": 393.0131209999672,
+        "p95_ms": 394.60566740053764,
+        "min_ms": 392.87530000001425,
+        "iterations": 3,
+        "warmup": 1,
+        "cuda_peak_incremental_allocated_bytes": null
+      },
+      "generation_arithmetic": {
+        "counted_flops": 98763048448,
+        "counted_operations": {
+          "aten.bmm": 34304,
+          "aten.mm": 98331918336,
+          "aten._scaled_dot_product_flash_attention_for_cpu": 431095808
+        },
+        "unmodeled_operations": [
+          "aten._local_scalar_dense",
+          "aten._to_copy",
+          "aten._unsafe_view",
+          "aten.add",
+          "aten.all",
+          "aten.any",
+          "aten.arange",
+          "aten.argmax",
+          "aten.bitwise_and",
+          "aten.bitwise_not",
+          "aten.bitwise_or",
+          "aten.cat",
+          "aten.clone",
+          "aten.cos",
+          "aten.cumsum",
+          "aten.embedding",
+          "aten.eq",
+          "aten.expand",
+          "aten.full",
+          "aten.gelu",
+          "aten.isin",
+          "aten.lift_fresh",
+          "aten.lt",
+          "aten.masked_fill_",
+          "aten.max",
+          "aten.mean",
+          "aten.mul",
+          "aten.neg",
+          "aten.new_ones",
+          "aten.ones",
+          "aten.ones_like",
+          "aten.pow",
+          "aten.rsqrt",
+          "aten.rsub",
+          "aten.scalar_tensor",
+          "aten.select",
+          "aten.sin",
+          "aten.slice",
+          "aten.sub",
+          "aten.t",
+          "aten.transpose",
+          "aten.unsqueeze",
+          "aten.view",
+          "aten.where"
+        ],
+        "convention": "Formula-based matrix/convolution/attention FLOPs; multiply-add=2. Unregistered operations excluded. This is not a complete instruction count."
+      },
+      "generated_token_ids": [
+        212551,
+        4914,
+        236761,
+        106,
+        34984,
+        106,
+        107,
+        106
+      ],
+      "generated_tokens": 8,
+      "language_measurement": "shape_matched_reuse",
+      "language_shape_id": "92c34b4edfbe62af537f",
+      "shape_reuse_note": "When enabled, only frozen-core stages are reused for identical checkpoint/device/dtype/batch/sequence/width/decode shapes. Prompt values may differ; adapter and sensor stages are measured separately. Latency is a shape-based estimate for reused cases.",
+      "adapter_weights": "random cost fixture"
+    }
+  },
+  "total_deployed": {
+    "parameters": 35844,
+    "weight_bytes": 143376,
+    "buffer_bytes": 0,
+    "serialized_state_bytes": 160417,
+    "counted_flops": 858944,
+    "wire_bytes": 81
+  },
+  "measured_colocated_sequential_pipeline": {
+    "median_ms": 0.6014219998178305,
+    "p95_ms": 0.6335439002214116,
+    "min_ms": 0.6001619985909201,
+    "iterations": 3,
+    "warmup": 1,
+    "cuda_peak_incremental_allocated_bytes": null,
+    "windows_per_second": 1662.7260065360063
+  },
+  "compression": {
+    "raw_numeric_payload_bytes": 480,
+    "representation_bytes": 5,
+    "raw_to_representation_ratio": 96.0,
+    "raw_to_wire_ratio": 5.925925925925926
+  },
+  "packet_logit_max_difference": 0.0,
+  "schedule_estimates": {
+    "parallel_independent_edges_and_links_ms": 2.509181998022436,
+    "sequential_edges_and_links_ms": 2.509181998022436,
+    "shared_uplink_ms": null,
+    "window_cadence_seconds": 1.5,
+    "parallel_can_keep_up": true
+  },
+  "research_model_parameters": 70436,
+  "host": {
+    "platform": "Linux-7.0.0-34-generic-x86_64-with-glibc2.43",
+    "cpu": "",
+    "torch": "2.14.1+cpu",
+    "threads": 8,
+    "cuda_devices": [],
+    "process_peak_rss_bytes_cumulative": 2711453696
+  },
+  "energy_joules": null,
+  "scope": {
+    "sensor_interface_and_classifier": "included",
+    "language_model": "included_separate_prompt_specific_stage",
+    "media_or_pretrained_frontend": "excluded",
+    "normalization_and_data_loading": "excluded"
+  },
+  "limitations": [
+    "Stage medians combined in schedule estimates; not measured network or simultaneous-device latency.",
+    "CPU peak RSS is cumulative process memory, not isolated model activation memory.",
+    "FLOPs are registered arithmetic only; unmodeled operators listed per stage.",
+    "Front-end media/feature extraction and optional language model excluded unless separately profiled."
+  ],
+  "total_deployed_with_language": {
+    "parameters": 1001288068,
+    "weight_bytes": 2005380368,
+    "buffer_bytes": 1026,
+    "serialized_state_bytes": null,
+    "counted_flops": 98785730880,
+    "wire_bytes": 81
+  },
+  "with_language_latency_estimates": {
+    "colocated_pipeline_ms": 393.8350439984788,
+    "parallel_edges_and_links_ms": 395.7428039966834
+  },
+  "dataset": "openmarcie_printer",
+  "target": "cpu",
+  "configuration": {
+    "modalities": {
+      "temperature": 4
+    },
+    "classes": 12,
+    "method": "unrestricted_bank",
+    "resample_length": 32,
+    "tokens": 8,
+    "hidden": 32,
+    "bank_size": 32,
+    "bank_sizes": {},
+    "heads": 4,
+    "layers": 2,
+    "dropout": 0,
+    "bottleneck_dim": 4,
+    "channel_noise": 0.0,
+    "tcn_kernel": 3,
+    "patch_length": 8,
+    "patch_stride": 4,
+    "modality_dropout": 0,
+    "temperature": 1.0,
+    "commitment": 0.1,
+    "alignment": 0.05,
+    "usage": 0.01,
+    "reconstruction": 0.1,
+    "language_weight": 1.0,
+    "event_weight": 0.1,
+    "epochs": 20,
+    "pretrain_epochs": 5,
+    "batch_size": 32,
+    "lr": 0.001,
+    "weight_decay": 0.0001,
+    "patience": 5,
+    "seed": 0,
+    "device": "cpu",
+    "protocol_overhead": 0,
+    "bandwidth_mbps": 10.0,
+    "link_latency_ms": 0.0
+  },
+  "scenario_id": "openmarcie_printer__only_temperature__gemma3_1b",
+  "core_name": "gemma3_1b",
+  "modality_set": "only_temperature",
+  "input_shapes": {
+    "temperature": [
+      1,
+      30,
+      4
+    ]
+  },
+  "evidence": "random_weights_cost_fixture",
+  "input_provenance": "openmarcie published-dimension synthetic feature fixture; see modality_inventory.json for field-specific assumptions. Random sensor weights. Feature extraction excluded. All derived/observer streams is a cost stress test, not a leakage-safe task protocol."
+}

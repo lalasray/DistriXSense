@@ -1,0 +1,9 @@
+{
+  "name": "NVIDIA RTX PRO 6000 Blackwell Workstation Edition",
+  "driver_version": "595.91.07",
+  "nvidia_smi_memory_total_mib": 97887,
+  "torch": "2.14.1+cu130",
+  "torch_cuda_runtime": "13.0",
+  "device_access": "outside sandbox",
+  "functional_checks_passed": 44
+}

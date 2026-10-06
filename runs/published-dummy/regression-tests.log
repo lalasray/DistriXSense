@@ -1,0 +1,17 @@
+..............................`torch_dtype` is deprecated! Use `dtype` instead!
+`loss_type=None` was set in the config but it is unrecognized. Using the default loss: `ForCausalLMLoss`.
+..distrixsense seed=0 epoch=1 loss=3.8543 val_f1=0.1667
+......profile nymeria cpu distrixsense: 3322 parameters
+profile nymeria cpu distrixsense: 3322 parameters
+profile nymeria cpu distrixsense: 2298 parameters
+profile nymeria cpu distrixsense: 2298 parameters
+profile nymeria cpu distrixsense: 2086 parameters
+profile nymeria cpu distrixsense: 2086 parameters
+..distrixsense seed=0 epoch=1 loss=4.0670 val_f1=0.1667
+distrixsense seed=0 epoch=1 loss=4.0518 val_f1=0.1667
+.......profile nymeria cpu distrixsense: 3160 parameters
+........
+----------------------------------------------------------------------
+Ran 55 tests in 2.698s
+
+OK
