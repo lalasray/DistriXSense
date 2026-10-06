@@ -6,5 +6,8 @@
 /wandb
 __pycache__/
 *.egg-info/
-/runs/
+/runs/*
+!/runs/published-dummy/
+/runs/published-dummy/*
+!/runs/published-dummy/summary.csv
 /dataset/
