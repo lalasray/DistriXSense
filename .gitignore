@@ -8,5 +8,7 @@ __pycache__/
 *.egg-info/
 /runs/*
 !/runs/published-dummy/
-!/runs/published-dummy/**
+/runs/published-dummy/**
+!/runs/published-dummy/**/
+!/runs/published-dummy/**/*.csv
 /dataset/
