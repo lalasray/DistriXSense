@@ -223,7 +223,14 @@ def profile_model(model, batch, topology, iterations=20, warmup=5, cadence=1.5):
     pipeline["windows_per_second"] = 1000/max(pipeline["median_ms"], 1e-12)
     combined, _ = model.peripheral(move_streams(batch["streams"], core_device))
     reference = model.central(combined)["logits"]
-    difference = float((core_fn()["logits"]-reference).abs().max())
+    # Transport fidelity must compare the SAME edge outputs. Re-encoding on a
+    # different device can change nearest-neighbor assignments near a VQ tie.
+    direct = {n: replace(m, values=m.values.to(core_device), times=m.times.to(core_device),
+                         valid=m.valid.to(core_device)) for n, m in all_messages.items()}
+    packet_reference = model.central(direct)["logits"]
+    packet_logits = core_fn()["logits"]
+    difference = float((packet_logits-packet_reference).abs().max())
+    device_difference = float((packet_logits-reference).abs().max())
     def duration(e):
         return e["compute"]["median_ms"]+e["encoding"]["median_ms"]+e["network"]["transfer_ms"]
     critical = max(map(duration, edges.values()), default=0.)
@@ -249,6 +256,7 @@ def profile_model(model, batch, topology, iterations=20, warmup=5, cadence=1.5):
             "measured_colocated_sequential_pipeline": pipeline,
             "compression": compression,
             "packet_logit_max_difference": difference,
+            "colocated_reference_logit_max_difference": device_difference,
             "schedule_estimates": {"parallel_independent_edges_and_links_ms": critical+core_ms,
                                    "sequential_edges_and_links_ms": sequential, "shared_uplink_ms": shared_ms,
                                    "window_cadence_seconds": cadence,

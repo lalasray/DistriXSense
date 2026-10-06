@@ -46,6 +46,10 @@ def main():
         packet_max_logit_difference=max_difference,coverage='complete',accounting_invariants='passed',
         by_core=dict(Counter(r['core_name'] for r in rows)),task_accuracy_tested=False,
         datasets_downloaded=False,gpu_measured=True,by_target=dict(Counter(r['target'] for r in rows)))
+    result['cross_device_reference_differences']=[
+        {'scenario_id':r['scenario_id'],'target':r['target'],'method':r['method'],
+         'difference':float(r['colocated_reference_logit_max_difference'])}
+        for r in rows if float(r['colocated_reference_logit_max_difference'])>=1e-5]
     (OUT/'validation.json').write_text(json.dumps(result,indent=2)+'\n')
     print(json.dumps(result))
 

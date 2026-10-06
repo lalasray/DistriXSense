@@ -96,6 +96,22 @@ class ProfilingTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "different input"):
                 run_suite(path/"spec.json", path/"out", ("cpu",), ("distrixsense",), 1, 0, resume=True)
 
+    def test_transport_validation_separates_reencoding_differences(self):
+        model = DistributedModel(replace(self.cfg, method="dense")).eval()
+        peripheral = model.peripheral
+        def different_reference(streams):
+            messages, aux = peripheral(streams)
+            if len(streams) == len(self.cfg.modalities):
+                name = next(iter(messages))
+                values = messages[name].values.clone()
+                values[..., 0] += 5
+                messages[name] = replace(messages[name], values=values)
+            return messages, aux
+        with patch.object(model, "peripheral", side_effect=different_reference):
+            result = profile_model(model, self.batch, self.topology, 1, 0)
+        self.assertLess(result['packet_logit_max_difference'], 1e-6)
+        self.assertGreater(result['colocated_reference_logit_max_difference'], 1e-5)
+
 
 if __name__ == "__main__":
     unittest.main()

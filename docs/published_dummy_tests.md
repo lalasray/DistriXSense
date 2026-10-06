@@ -144,3 +144,19 @@ per-node accounting does not imply multiple physical GPUs were deployed. Paralle
 network/device schedules are projections, not observed simultaneous distributed
 execution. Environment package snapshots and CPU/GPU hardware records are stored
 beside the reports. The resumed CPU and full GPU timing suites run sequentially.
+
+## Completed validation
+
+All7,749 cost combinations completed (2,583 each CPU/GPU/mixed), with286 measured
+core-stage records and7,463 explicitly reused core-stage records. All55 regression
+tests pass. The combined report is `runs/published-dummy/RESULTS.md`; exhaustive
+coverage and accounting checks are in `validation.json`.
+
+Three mixed-device post-hoc VQ reports have an8.10e-5 logit difference when CPU
+edge encoding is compared with re-encoding on GPU. The original profiler conflated
+this with packet fidelity. It now compares the same edge outputs sent directly
+and serialized to the core, and reports the cross-device comparison separately.
+Independent rechecks across861 sensor configurations (2,583 mixed reports) gave
+exactly zero transport difference. Original compute timings and FLOP measurements
+were preserved; corrected validation fields remain alongside the original
+cross-device discrepancy. `tools/verify_mixed_transport.py` reproduces that audit.

@@ -1,19 +1,26 @@
 # Implementation validation
 
 Validated on CPU using Python 3.14.6, PyTorch 2.14.1+cpu, NumPy 2.5.2 and
-Transformers 4.57.6. The package declares broader compatible minimum versions;
-those versions and CUDA have not been separately exercised here.
+Transformers 4.57.6. CUDA functional validation also passes with PyTorch
+2.14.1+cu130 on an RTX PRO6000 Blackwell96GB: all22 methods on GPU and on
+CPU-edge/GPU-core placement (44 checks), plus real Gemma generation. The package
+declares broader compatible minimum versions; those versions have not been
+separately exercised here.
 
 ```bash
 .venv/bin/python -m unittest discover -s tests -v
 .venv/bin/python -m distrixsense smoke --output runs/validation
 ```
 
-All 50 tests passed. The tests cover participant leakage rejection, training-only
+All 55 tests passed. The tests cover participant leakage rejection, training-only
 normalization, annotation-column exclusion, asynchronous recording preparation,
 timestamp interpolation, padding invariance, all-missing sensors, frozen encoders,
 selector/bank gradients, reserved-bank enforcement, packet corruption and bit widths,
 checkpoint restoration, temporal-head supervision and standalone deployment exports.
+They also check source-based shape accounting, explicit LLM shape reuse and safe
+resumption of completed profiling cases.
+Transport tests distinguish serialization fidelity from re-encoding differences
+between hardware backends.
 
 The smoke suite completed training, validation, test evaluation and packet inference
 for all 21 main methods/ablations. The optional ImageBind fusion branch was tested
@@ -47,4 +54,4 @@ measured network latency and energy require the actual data, weights or instrume
 
 Additional temporal tests verify TCN causality, PatchTST tail coverage and missing-channel exclusion, gradient flow, masked-input invariance and checkpoint restoration. The 21-method smoke suite completed in `runs/temporal-baselines-validation`.
 
-The modality/LLM matrix is validated with two different tiny local causal-LM widths, including per-modality cost tables and core-specific training/checkpoints. BF16-core gradients and native chat-template prefix handling are tested. Actual 1B/4B/8B pretrained core runs require local weights and prepared annotated data and have not been run.
+The modality/LLM matrix is validated with two different tiny local causal-LM widths, including per-modality cost tables and core-specific training/checkpoints. BF16-core gradients and native chat-template prefix handling are tested. Downloaded Gemma3 1B IT and Qwen3 4B/8B cores have also executed on source-documented synthetic feature shapes. See the [downloaded-core experiment](published_dummy_tests.md) for reproduction, measurement reuse and input assumptions. These cost tests do not require annotated recordings and do not establish useful sensing QA.
